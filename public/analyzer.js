@@ -1,5 +1,10 @@
 export const MAX_FILE_BYTES = 50 * 1024 * 1024;
 
+// An unverified browser activity check is not authoritative: it does not recognize the
+// spoken phrase or the requested movement, and it cannot detect replay. Its risk never
+// falls below this floor, so a liveness check alone can never produce `allow`.
+export const LIVENESS_FLOOR_RISK = 35;
+
 const MEDIA_FORMATS = {
   "image/jpeg": { extensions: ["jpg", "jpeg"], mimeTypes: ["image/jpeg"] },
   "image/png": { extensions: ["png"], mimeTypes: ["image/png"] },
@@ -23,45 +28,88 @@ const GENERATOR_MARKERS = [
   "udio.com",
 ];
 
+const C2PA_MARKERS = ["c2pa", "content credentials"];
+
+const SCAN_MARKERS = [...GENERATOR_MARKERS, ...C2PA_MARKERS];
+const SCAN_CHUNK_BYTES = 1 << 20;
+
 function clamp(value, minimum, maximum) {
   return Math.min(maximum, Math.max(minimum, value));
 }
 
-function decodedText(bytes) {
-  return new TextDecoder("latin1").decode(bytes).toLowerCase();
+// Scans in bounded, overlapping chunks so a 50 MB upload never allocates a 50 M
+// character string. The overlap is the longest marker minus one, so no marker can
+// hide on a chunk boundary.
+function findMarkers(bytes, markers) {
+  const decoder = new TextDecoder("latin1");
+  const overlap = Math.max(...markers.map((marker) => marker.length)) - 1;
+  const found = new Set();
+  let remaining = markers;
+
+  for (let start = 0; start < bytes.length && remaining.length; start += SCAN_CHUNK_BYTES) {
+    const chunk = decoder.decode(bytes.subarray(start, start + SCAN_CHUNK_BYTES + overlap)).toLowerCase();
+    remaining = remaining.filter((marker) => {
+      if (!chunk.includes(marker)) return true;
+      found.add(marker);
+      return false;
+    });
+  }
+  return markers.filter((marker) => found.has(marker));
+}
+
+// MPEG audio frame header: an 11 bit sync word followed by version, layer, bitrate,
+// and sample rate fields. Checking the fields rather than a list of literal sync bytes
+// accepts MPEG-2.5 and Layer II frames while still rejecting AAC ADTS, which reuses
+// the sync word with the reserved layer value.
+function isMpegAudioFrame(bytes) {
+  if (bytes.length < 3) return false;
+  const [first, second, third] = bytes;
+  if (first !== 0xff || (second & 0xe0) !== 0xe0) return false;
+  const version = (second >> 3) & 0x03;
+  const layer = (second >> 1) & 0x03;
+  const bitrateIndex = (third >> 4) & 0x0f;
+  const sampleRateIndex = (third >> 2) & 0x03;
+  return version !== 0x01 && layer !== 0x00 && bitrateIndex !== 0x0f && sampleRateIndex !== 0x03;
 }
 
 export function sniffMediaType(bytes) {
   const hex = [...bytes.slice(0, 12)].map((value) => value.toString(16).padStart(2, "0")).join("");
-  const text = decodedText(bytes.slice(0, 16));
+  const text = new TextDecoder("latin1").decode(bytes.slice(0, 16)).toLowerCase();
   if (hex.startsWith("ffd8ff")) return "image/jpeg";
   if (hex.startsWith("89504e470d0a1a0a")) return "image/png";
   if (text.startsWith("riff") && text.slice(8, 12) === "wave") return "audio/wav";
-  if (text.startsWith("id3") || hex.startsWith("fff2") || hex.startsWith("fff3") || hex.startsWith("fffa") || hex.startsWith("fffb")) return "audio/mpeg";
+  if (text.startsWith("id3") || isMpegAudioFrame(bytes)) return "audio/mpeg";
   if (text.startsWith("oggs")) return "audio/ogg";
   return "unknown";
 }
 
 export function extractSignals(bytes, declaredType = "", fileName = "") {
-  const text = decodedText(bytes);
   const sniffedType = sniffMediaType(bytes);
   const format = MEDIA_FORMATS[sniffedType];
   const extension = fileName.includes(".") ? fileName.toLowerCase().split(".").pop() : "";
+  const matched = findMarkers(bytes, SCAN_MARKERS);
 
   return {
     declaredType: declaredType.toLowerCase(),
     extension,
-    hasC2paText: text.includes("c2pa") || text.includes("content credentials"),
-    matchedGeneratorMarkers: GENERATOR_MARKERS.filter((marker) => text.includes(marker)),
+    hasC2paText: matched.some((marker) => C2PA_MARKERS.includes(marker)),
+    matchedGeneratorMarkers: matched.filter((marker) => GENERATOR_MARKERS.includes(marker)),
     sniffedType,
-    extensionMismatch: Boolean(format && !format.extensions.includes(extension)),
+    // A missing extension is not a mismatch. Pasted, dragged, and downloaded files
+    // routinely arrive without one, so the check is skipped rather than failed.
+    extensionMismatch: Boolean(format && extension && !format.extensions.includes(extension)),
     mimeMismatch: Boolean(format && declaredType && !format.mimeTypes.includes(declaredType.toLowerCase())),
   };
 }
 
 export function scoreUpload(signals, fileSize) {
+  // Checked before anything else, because an oversized file is never read. Reporting
+  // signature or metadata findings here would describe a check that never ran.
+  if (fileSize > MAX_FILE_BYTES) {
+    return buildDecision(null, ["File exceeds the 50 MB inspection limit, so its contents were not inspected"], "upload", "inconclusive");
+  }
+
   const validationReasons = [];
-  if (fileSize > MAX_FILE_BYTES) validationReasons.push("File exceeds the 50 MB inspection limit");
   if (signals.sniffedType === "unknown") validationReasons.push("The file signature is not a supported image or audio format");
   if (signals.mimeMismatch) validationReasons.push("The declared MIME type does not match the detected format");
   if (signals.extensionMismatch) validationReasons.push("The filename extension does not match the detected format");
@@ -75,12 +123,14 @@ export function scoreUpload(signals, fileSize) {
   if (signals.matchedGeneratorMarkers.length) {
     score += 35;
     reasons.push(`Unauthenticated generator marker found: ${signals.matchedGeneratorMarkers.join(", ")}`);
+  } else {
+    reasons.push("No specific generator marker was found; this does not prove the media is human-made");
   }
   if (signals.hasC2paText) {
     reasons.push("Content Credentials-like text was found but not validated; it does not change the score");
   }
-  if (!signals.matchedGeneratorMarkers.length) {
-    reasons.push("No specific generator marker was found; this does not prove the media is human-made");
+  if (!signals.extension) {
+    reasons.push("The filename has no extension, so the extension check was skipped");
   }
   return buildDecision(score, reasons, "upload");
 }
@@ -94,33 +144,35 @@ export function scoreLiveness({
 }) {
   if (startupError) return buildDecision(null, [startupError], "liveness", "inconclusive");
 
-  let score = 65;
-  const reasons = ["This activity check does not verify the displayed words or movement and cannot rule out replay"];
-  if (!userClaimedComplete) {
-    score += 40;
-    reasons.push("The user did not mark the challenge complete");
-  } else {
+  // Penalties are additive from the floor and sum to exactly 100, so each failing
+  // signal stays distinguishable instead of saturating at `block`.
+  let score = LIVENESS_FLOOR_RISK;
+  const reasons = [
+    "This activity check does not verify the displayed words or movement and cannot rule out replay",
+    `Because the response is unverified, this check never scores below ${LIVENESS_FLOOR_RISK} and cannot produce allow on its own`,
+  ];
+  if (userClaimedComplete) {
     reasons.push("The user marked the challenge complete; the response itself was not recognized");
+  } else {
+    score += 30;
+    reasons.push("The user did not mark the challenge complete");
   }
   if (durationSeconds >= 3 && durationSeconds <= 20) {
-    score -= 10;
     reasons.push("The response arrived inside the expected time window");
   } else {
-    score += 20;
+    score += 12;
     reasons.push("The response was outside the 3 to 20 second time window");
   }
   if (speechActivityRatio >= 0.15) {
-    score -= 10;
     reasons.push("Sustained microphone activity was detected");
   } else {
-    score += 25;
+    score += 12;
     reasons.push("Sustained microphone activity was not detected");
   }
   if (visualMotion >= 0.025) {
-    score -= 10;
     reasons.push("Frame-to-frame visual activity was detected");
   } else {
-    score += 25;
+    score += 11;
     reasons.push("Frame-to-frame visual activity was not detected");
   }
   return buildDecision(score, reasons, "liveness");
@@ -139,9 +191,16 @@ export function combineDecisions(decisions) {
   if (!upload || !liveness) {
     return buildDecision(null, ["Complete both the file inspection and live activity check for a final decision"], "combined", "inconclusive");
   }
-  if (upload.action === "inconclusive" || liveness.action === "inconclusive") {
-    return buildDecision(null, [...upload.reasons, ...liveness.reasons], "combined", "inconclusive");
+
+  const reasons = [...upload.reasons, ...liveness.reasons];
+  const blocking = [upload, liveness].filter(({ action }) => action === "block");
+  // A check that could not run must never erase a definitive block from the other
+  // check, otherwise denying camera permission would soften a blocked upload.
+  if (blocking.length) {
+    return buildDecision(Math.max(...blocking.map(({ risk }) => risk)), reasons, "combined");
   }
-  const highest = Math.max(upload.risk, liveness.risk);
-  return buildDecision(highest, [...upload.reasons, ...liveness.reasons], "combined");
+  if ([upload, liveness].some(({ action }) => action === "inconclusive")) {
+    return buildDecision(null, reasons, "combined", "inconclusive");
+  }
+  return buildDecision(Math.max(upload.risk, liveness.risk), reasons, "combined");
 }

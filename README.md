@@ -41,7 +41,9 @@ The demo does **not** cryptographically validate a C2PA signature, identify clon
 | 35–69 | Review | Quarantine and request stronger evidence or human review |
 | 70–100 | Block | Reject the action, log the signal categories, and offer an appeal |
 
-Unsupported, oversized, or inconsistent files return `inconclusive` instead of increasing the AI-risk score. A final decision is withheld until both checks are complete. Because the browser activity check does not verify challenge compliance, activity alone cannot produce `allow`.
+Because the browser activity check does not verify challenge compliance, its risk never falls below 35. The `allow` band therefore describes the file inspection on its own: **the combined decision in this demo cannot reach `allow`**, and its best outcome is `review`. Reaching `allow` would require an authoritative liveness signal, such as a server-verified challenge bound to a signed nonce.
+
+Unsupported, oversized, or inconsistent files return `inconclusive` instead of increasing the AI-risk score, and a file over the size limit is never read at all. A final decision is withheld until both checks are complete, with one exception: an `inconclusive` check never erases a `block` from the other check, so denying camera permission cannot soften a blocked upload. Treat `inconclusive` as not allowed.
 
 For production, require both upload and liveness checks for sensitive actions. Add a trusted C2PA validation service, server-side rate limiting, replay detection, signed challenge nonces, audit logs with strict retention, consent, accessibility alternatives, and a human appeal path. Do not block solely because metadata is absent or because one probabilistic detector fires.
 

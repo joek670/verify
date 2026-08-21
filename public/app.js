@@ -38,7 +38,8 @@ uploadInput.addEventListener("change", async () => {
   if (!file) return;
   const currentUpload = ++uploadId;
   if (file.size > MAX_FILE_BYTES) {
-    uploadDecision = scoreUpload(extractSignals(new Uint8Array(), file.type, file.name), file.size);
+    // The bytes are never read, so there are no signals to report.
+    uploadDecision = scoreUpload(null, file.size);
   } else {
     const bytes = new Uint8Array(await file.arrayBuffer());
     if (currentUpload !== uploadId) return;

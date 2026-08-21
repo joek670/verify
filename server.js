@@ -13,13 +13,42 @@ const types = {
   ".svg": "image/svg+xml",
 };
 
+// Sent on every response, including errors, so an error page is never sniffed,
+// framed, or allowed to load anything the app itself could not load.
+const securityHeaders = {
+  "Cache-Control": "no-store",
+  "Content-Security-Policy": "default-src 'self'; img-src 'self' blob: data:; media-src 'self' blob:; connect-src 'self'; style-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
+  "Referrer-Policy": "no-referrer",
+  "X-Content-Type-Options": "nosniff",
+  "X-Frame-Options": "DENY",
+};
+
+const TEXT = { ...securityHeaders, "Content-Type": "text/plain; charset=utf-8" };
+
+// Parsing a request target against a relative base reads `//host/path` as a
+// protocol-relative URL, which discards the path and leaves pathname as "/".
+// Building an absolute URL with an explicit origin keeps the whole target in
+// the pathname, so it can be resolved and rejected on its own merits.
+function requestPathname(target) {
+  try {
+    return new URL(`http://localhost${target.startsWith("/") ? target : `/${target}`}`).pathname;
+  } catch {
+    return null;
+  }
+}
+
 export const server = createServer((request, response) => {
-  const pathname = new URL(request.url ?? "/", "http://localhost").pathname;
-  const requested = pathname === "/" ? "index.html" : pathname.slice(1);
+  const pathname = requestPathname(request.url ?? "/");
+  if (pathname === null) {
+    response.writeHead(400, TEXT).end("Bad request");
+    return;
+  }
+
+  const requested = pathname.replace(/^\/+/, "") || "index.html";
   const filePath = normalize(join(root, requested));
 
   if (!filePath.startsWith(root)) {
-    response.writeHead(403).end("Forbidden");
+    response.writeHead(403, TEXT).end("Forbidden");
     return;
   }
 
@@ -27,17 +56,13 @@ export const server = createServer((request, response) => {
     const stat = statSync(filePath);
     if (!stat.isFile()) throw new Error("Not a file");
     response.writeHead(200, {
-      "Cache-Control": "no-store",
+      ...securityHeaders,
       "Content-Length": stat.size,
       "Content-Type": types[extname(filePath)] ?? "application/octet-stream",
-      "Content-Security-Policy": "default-src 'self'; img-src 'self' blob: data:; media-src 'self' blob:; connect-src 'self'; style-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
-      "Referrer-Policy": "no-referrer",
-      "X-Content-Type-Options": "nosniff",
-      "X-Frame-Options": "DENY",
     });
     createReadStream(filePath).pipe(response);
   } catch {
-    response.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" }).end("Not found");
+    response.writeHead(404, TEXT).end("Not found");
   }
 });
 

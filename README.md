@@ -25,13 +25,13 @@ npm test
 ## Signals
 
 - File signature compared with the declared MIME type and extension
-- Embedded strings associated with known generators or editing tools
-- Presence of C2PA or Content Credentials markers
+- Specific embedded strings associated with known generators, treated only as weak evidence
+- Presence of C2PA or Content Credentials-like text, reported without changing risk
 - Completion time for a randomized phrase and movement challenge
-- Microphone activity during the response
-- Camera-frame luminance change during the response
+- Sustained microphone activity during the response
+- Frame-to-frame pixel activity during the response
 
-The demo does **not** cryptographically validate a C2PA signature, identify cloned voices, recognize spoken words, recognize faces, or store evidence.
+The demo does **not** cryptographically validate a C2PA signature, identify cloned voices, recognize spoken words or requested movements, resist replay, recognize faces, or store evidence. Its score is an uncalibrated rule score, not the probability that media is AI-generated.
 
 ## Blocking policy
 
@@ -40,6 +40,8 @@ The demo does **not** cryptographically validate a C2PA signature, identify clon
 | 0–34 | Allow | Continue while retaining normal abuse controls |
 | 35–69 | Review | Quarantine and request stronger evidence or human review |
 | 70–100 | Block | Reject the action, log the signal categories, and offer an appeal |
+
+Unsupported, oversized, or inconsistent files return `inconclusive` instead of increasing the AI-risk score. A final decision is withheld until both checks are complete. Because the browser activity check does not verify challenge compliance, activity alone cannot produce `allow`.
 
 For production, require both upload and liveness checks for sensitive actions. Add a trusted C2PA validation service, server-side rate limiting, replay detection, signed challenge nonces, audit logs with strict retention, consent, accessibility alternatives, and a human appeal path. Do not block solely because metadata is absent or because one probabilistic detector fires.
 

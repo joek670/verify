@@ -1,22 +1,27 @@
 export const MAX_FILE_BYTES = 50 * 1024 * 1024;
 
-const AI_MARKERS = [
+const MEDIA_FORMATS = {
+  "image/jpeg": { extensions: ["jpg", "jpeg"], mimeTypes: ["image/jpeg"] },
+  "image/png": { extensions: ["png"], mimeTypes: ["image/png"] },
+  "audio/wav": { extensions: ["wav"], mimeTypes: ["audio/wav", "audio/x-wav", "audio/wave"] },
+  "audio/mpeg": { extensions: ["mp3"], mimeTypes: ["audio/mpeg", "audio/mp3"] },
+  "audio/ogg": { extensions: ["ogg", "oga"], mimeTypes: ["audio/ogg"] },
+};
+
+// These specific tool identifiers are weak, unauthenticated evidence. Generic words
+// such as "prompt", "openai", and editor names intentionally do not count.
+const GENERATOR_MARKERS = [
   "automatic1111",
   "comfyui",
-  "dall-e",
-  "firefly",
-  "flux",
+  "dall-e 2",
+  "dall-e 3",
   "generative fill",
   "invokeai",
-  "midjourney",
-  "openai",
-  "prompt",
+  "midjourney bot",
   "stable diffusion",
-  "suno",
-  "udio",
+  "suno.ai",
+  "udio.com",
 ];
-
-const EDITOR_MARKERS = ["adobe", "canva", "gimp", "photoshop"];
 
 function clamp(value, minimum, maximum) {
   return Math.min(maximum, Math.max(minimum, value));
@@ -32,125 +37,111 @@ export function sniffMediaType(bytes) {
   if (hex.startsWith("ffd8ff")) return "image/jpeg";
   if (hex.startsWith("89504e470d0a1a0a")) return "image/png";
   if (text.startsWith("riff") && text.slice(8, 12) === "wave") return "audio/wav";
-  if (text.startsWith("id3") || hex.startsWith("fff3") || hex.startsWith("fffb")) return "audio/mpeg";
-  if (text.startsWith("ogg")) return "audio/ogg";
-  if (text.includes("ftyp")) return "audio/mp4";
-  if (hex.startsWith("1a45dfa3")) return "audio/webm";
+  if (text.startsWith("id3") || hex.startsWith("fff2") || hex.startsWith("fff3") || hex.startsWith("fffa") || hex.startsWith("fffb")) return "audio/mpeg";
+  if (text.startsWith("oggs")) return "audio/ogg";
   return "unknown";
 }
 
 export function extractSignals(bytes, declaredType = "", fileName = "") {
   const text = decodedText(bytes);
-  const matchedAiMarkers = AI_MARKERS.filter((marker) => text.includes(marker));
-  const matchedEditorMarkers = EDITOR_MARKERS.filter((marker) => text.includes(marker));
-  const hasC2paClaim = text.includes("c2pa") || text.includes("content credentials");
-  const hasSignedClaim = hasC2paClaim && (text.includes("signature") || text.includes("manifest"));
   const sniffedType = sniffMediaType(bytes);
-  const declaredFamily = declaredType.split("/")[0];
-  const sniffedFamily = sniffedType.split("/")[0];
-  const extension = fileName.toLowerCase().split(".").pop();
-  const suspiciousExtension = !["jpg", "jpeg", "png", "wav", "mp3", "ogg", "m4a", "mp4", "webm"].includes(extension ?? "");
+  const format = MEDIA_FORMATS[sniffedType];
+  const extension = fileName.includes(".") ? fileName.toLowerCase().split(".").pop() : "";
 
   return {
-    declaredType,
-    hasC2paClaim,
-    hasSignedClaim,
-    matchedAiMarkers,
-    matchedEditorMarkers,
+    declaredType: declaredType.toLowerCase(),
+    extension,
+    hasC2paText: text.includes("c2pa") || text.includes("content credentials"),
+    matchedGeneratorMarkers: GENERATOR_MARKERS.filter((marker) => text.includes(marker)),
     sniffedType,
-    suspiciousExtension,
-    typeMismatch: Boolean(declaredFamily && sniffedFamily && sniffedFamily !== "unknown" && declaredFamily !== sniffedFamily),
+    extensionMismatch: Boolean(format && !format.extensions.includes(extension)),
+    mimeMismatch: Boolean(format && declaredType && !format.mimeTypes.includes(declaredType.toLowerCase())),
   };
 }
 
 export function scoreUpload(signals, fileSize) {
-  let score = 15;
+  const validationReasons = [];
+  if (fileSize > MAX_FILE_BYTES) validationReasons.push("File exceeds the 50 MB inspection limit");
+  if (signals.sniffedType === "unknown") validationReasons.push("The file signature is not a supported image or audio format");
+  if (signals.mimeMismatch) validationReasons.push("The declared MIME type does not match the detected format");
+  if (signals.extensionMismatch) validationReasons.push("The filename extension does not match the detected format");
+
+  if (validationReasons.length) {
+    return buildDecision(null, validationReasons, "upload", "inconclusive");
+  }
+
+  let score = 10;
   const reasons = [];
-
-  if (fileSize > MAX_FILE_BYTES) {
-    score += 80;
-    reasons.push("File exceeds the 50 MB inspection limit");
-  }
-  if (signals.sniffedType === "unknown") {
+  if (signals.matchedGeneratorMarkers.length) {
     score += 35;
-    reasons.push("The file signature is not a supported image or audio format");
+    reasons.push(`Unauthenticated generator marker found: ${signals.matchedGeneratorMarkers.join(", ")}`);
   }
-  if (signals.typeMismatch) {
-    score += 55;
-    reasons.push("The declared media type does not match the file signature");
+  if (signals.hasC2paText) {
+    reasons.push("Content Credentials-like text was found but not validated; it does not change the score");
   }
-  if (signals.suspiciousExtension) {
-    score += 20;
-    reasons.push("The filename extension is not on the media allowlist");
+  if (!signals.matchedGeneratorMarkers.length) {
+    reasons.push("No specific generator marker was found; this does not prove the media is human-made");
   }
-  if (signals.matchedAiMarkers.length) {
-    score += 55;
-    reasons.push(`Generation metadata found: ${signals.matchedAiMarkers.join(", ")}`);
-  }
-  if (signals.matchedEditorMarkers.length) {
-    score += 15;
-    reasons.push(`Editing software metadata found: ${signals.matchedEditorMarkers.join(", ")}`);
-  }
-  if (signals.hasC2paClaim && !signals.hasSignedClaim) {
-    score += 20;
-    reasons.push("Content Credentials marker found, but this demo cannot validate its signature");
-  }
-  if (signals.hasSignedClaim) {
-    score -= 10;
-    reasons.push("Content Credentials data found; use a trusted C2PA validator before allowing it");
-  }
-  if (!reasons.length) reasons.push("No obvious generation metadata was found");
-
   return buildDecision(score, reasons, "upload");
 }
 
-export function scoreLiveness({ completed, durationSeconds, speechActivity, visualChange, permissionDenied = false }) {
-  let score = 70;
-  const reasons = [];
+export function scoreLiveness({
+  userClaimedComplete,
+  durationSeconds,
+  speechActivityRatio,
+  visualMotion,
+  startupError,
+}) {
+  if (startupError) return buildDecision(null, [startupError], "liveness", "inconclusive");
 
-  if (permissionDenied) {
-    return buildDecision(100, ["Camera or microphone permission was denied"], "liveness");
-  }
-  if (completed) {
-    score -= 40;
-    reasons.push("The randomized challenge was marked complete");
+  let score = 65;
+  const reasons = ["This activity check does not verify the displayed words or movement and cannot rule out replay"];
+  if (!userClaimedComplete) {
+    score += 40;
+    reasons.push("The user did not mark the challenge complete");
   } else {
-    reasons.push("The randomized challenge was not completed");
+    reasons.push("The user marked the challenge complete; the response itself was not recognized");
   }
   if (durationSeconds >= 3 && durationSeconds <= 20) {
-    score -= 15;
+    score -= 10;
     reasons.push("The response arrived inside the expected time window");
   } else {
-    score += 15;
+    score += 20;
     reasons.push("The response was outside the 3 to 20 second time window");
   }
-  if (speechActivity >= 0.08) {
-    score -= 15;
-    reasons.push("Microphone activity changed during the challenge");
+  if (speechActivityRatio >= 0.15) {
+    score -= 10;
+    reasons.push("Sustained microphone activity was detected");
   } else {
-    score += 20;
-    reasons.push("No meaningful microphone activity was detected");
+    score += 25;
+    reasons.push("Sustained microphone activity was not detected");
   }
-  if (visualChange >= 0.03) {
-    score -= 15;
-    reasons.push("Camera frames changed during the challenge");
+  if (visualMotion >= 0.025) {
+    score -= 10;
+    reasons.push("Frame-to-frame visual activity was detected");
   } else {
-    score += 20;
-    reasons.push("Camera frames did not change enough during the challenge");
+    score += 25;
+    reasons.push("Frame-to-frame visual activity was not detected");
   }
-
   return buildDecision(score, reasons, "liveness");
 }
 
-export function buildDecision(score, reasons, source) {
+export function buildDecision(score, reasons, source, forcedAction) {
+  if (forcedAction === "inconclusive") return { action: "inconclusive", reasons, risk: null, source };
   const risk = clamp(Math.round(score), 0, 100);
   const action = risk >= 70 ? "block" : risk >= 35 ? "review" : "allow";
   return { action, reasons, risk, source };
 }
 
 export function combineDecisions(decisions) {
-  if (!decisions.length) return buildDecision(100, ["No verification result is available"], "combined");
-  const highest = Math.max(...decisions.map(({ risk }) => risk));
-  const average = decisions.reduce((total, { risk }) => total + risk, 0) / decisions.length;
-  return buildDecision(Math.max(highest, average), decisions.flatMap(({ reasons }) => reasons), "combined");
+  const upload = decisions.find(({ source }) => source === "upload");
+  const liveness = decisions.find(({ source }) => source === "liveness");
+  if (!upload || !liveness) {
+    return buildDecision(null, ["Complete both the file inspection and live activity check for a final decision"], "combined", "inconclusive");
+  }
+  if (upload.action === "inconclusive" || liveness.action === "inconclusive") {
+    return buildDecision(null, [...upload.reasons, ...liveness.reasons], "combined", "inconclusive");
+  }
+  const highest = Math.max(upload.risk, liveness.risk);
+  return buildDecision(highest, [...upload.reasons, ...liveness.reasons], "combined");
 }

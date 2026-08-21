@@ -25,49 +25,86 @@ let audioContext;
 let analyser;
 let animationFrame;
 let startedAt = 0;
-let peakAudio = 0;
-let visualSamples = [];
+let audioSampleCount = 0;
+let activeAudioSampleCount = 0;
+let motionTotal = 0;
+let motionSampleCount = 0;
+let previousFrame;
+let sessionId = 0;
+let uploadId = 0;
 
 uploadInput.addEventListener("change", async () => {
   const file = uploadInput.files?.[0];
   if (!file) return;
+  const currentUpload = ++uploadId;
   if (file.size > MAX_FILE_BYTES) {
     uploadDecision = scoreUpload(extractSignals(new Uint8Array(), file.type, file.name), file.size);
   } else {
     const bytes = new Uint8Array(await file.arrayBuffer());
+    if (currentUpload !== uploadId) return;
     uploadDecision = scoreUpload(extractSignals(bytes, file.type, file.name), file.size);
   }
+  liveDecision = undefined;
+  liveResult.hidden = true;
   renderDecision(uploadResult, uploadDecision);
   renderCombined();
 });
 
 startButton.addEventListener("click", async () => {
   stopLive();
+  const currentSession = ++sessionId;
+  startButton.disabled = true;
+  liveDecision = undefined;
+  liveResult.hidden = true;
+  renderCombined();
+  let acquiredStream;
   try {
-    stream = await navigator.mediaDevices.getUserMedia({
+    if (!navigator.mediaDevices?.getUserMedia) throw new DOMException("Media capture is unavailable", "NotSupportedError");
+    acquiredStream = await navigator.mediaDevices.getUserMedia({
       audio: { echoCancellation: true, noiseSuppression: true },
       video: { facingMode: "user", height: { ideal: 480 }, width: { ideal: 640 } },
     });
-    video.srcObject = stream;
+    if (currentSession !== sessionId) {
+      acquiredStream.getTracks().forEach((track) => track.stop());
+      return;
+    }
+    video.srcObject = acquiredStream;
     await video.play();
+    if (currentSession !== sessionId) {
+      acquiredStream.getTracks().forEach((track) => track.stop());
+      return;
+    }
+    stream = acquiredStream;
     challengeText.textContent = challenges[crypto.getRandomValues(new Uint32Array(1))[0] % challenges.length];
     startedAt = performance.now();
-    peakAudio = 0;
-    visualSamples = [];
-    startButton.disabled = true;
+    audioSampleCount = 0;
+    activeAudioSampleCount = 0;
+    motionTotal = 0;
+    motionSampleCount = 0;
+    previousFrame = undefined;
     completeButton.disabled = false;
     stopButton.disabled = false;
     beginMeasurements();
-  } catch {
-    liveDecision = scoreLiveness({ completed: false, durationSeconds: 0, permissionDenied: true, speechActivity: 0, visualChange: 0 });
+  } catch (error) {
+    acquiredStream?.getTracks().forEach((track) => track.stop());
+    if (currentSession !== sessionId) return;
+    const messages = {
+      NotAllowedError: "Camera or microphone permission was denied",
+      NotFoundError: "A camera or microphone was not found",
+      NotReadableError: "The camera or microphone could not be opened",
+      NotSupportedError: "Media capture is not supported in this browser",
+    };
+    liveDecision = scoreLiveness({ startupError: messages[error?.name] ?? "The live activity check could not start" });
     renderDecision(liveResult, liveDecision);
     renderCombined();
+    stopLive();
   }
 });
 
 completeButton.addEventListener("click", () => finishLive(true));
 stopButton.addEventListener("click", () => finishLive(false));
 window.addEventListener("beforeunload", stopLive);
+window.addEventListener("pagehide", stopLive);
 
 function beginMeasurements() {
   audioContext = new AudioContext();
@@ -83,18 +120,24 @@ function beginMeasurements() {
   const measure = () => {
     analyser.getByteTimeDomainData(audioData);
     const level = Math.sqrt(audioData.reduce((sum, value) => sum + ((value - 128) / 128) ** 2, 0) / audioData.length);
-    peakAudio = Math.max(peakAudio, level);
+    audioSampleCount += 1;
+    if (level >= 0.08) activeAudioSampleCount += 1;
     meter.value = Math.min(1, level * 5);
 
     if (video.readyState >= 2 && context) {
       context.drawImage(video, 0, 0, canvas.width, canvas.height);
       const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
-      let luminance = 0;
-      for (let index = 0; index < pixels.length; index += 16) {
-        luminance += (pixels[index] + pixels[index + 1] + pixels[index + 2]) / (3 * 255);
+      const frame = new Uint8Array(canvas.width * canvas.height);
+      for (let source = 0, target = 0; source < pixels.length; source += 4, target += 1) {
+        frame[target] = Math.round((pixels[source] + pixels[source + 1] + pixels[source + 2]) / 3);
       }
-      visualSamples.push(luminance / (pixels.length / 16));
-      if (visualSamples.length > 150) visualSamples.shift();
+      if (previousFrame) {
+        let difference = 0;
+        for (let index = 0; index < frame.length; index += 1) difference += Math.abs(frame[index] - previousFrame[index]);
+        motionTotal += difference / (frame.length * 255);
+        motionSampleCount += 1;
+      }
+      previousFrame = frame;
     }
     animationFrame = requestAnimationFrame(measure);
   };
@@ -104,20 +147,23 @@ function beginMeasurements() {
 function finishLive(completed) {
   if (!stream) return;
   const durationSeconds = (performance.now() - startedAt) / 1000;
-  const visualChange = visualSamples.length > 1 ? Math.max(...visualSamples) - Math.min(...visualSamples) : 0;
-  liveDecision = scoreLiveness({ completed, durationSeconds, speechActivity: peakAudio, visualChange });
+  const speechActivityRatio = audioSampleCount ? activeAudioSampleCount / audioSampleCount : 0;
+  const visualMotion = motionSampleCount ? motionTotal / motionSampleCount : 0;
+  liveDecision = scoreLiveness({ userClaimedComplete: completed, durationSeconds, speechActivityRatio, visualMotion });
   renderDecision(liveResult, liveDecision);
   renderCombined();
   stopLive();
 }
 
 function stopLive() {
+  sessionId += 1;
   if (animationFrame) cancelAnimationFrame(animationFrame);
   stream?.getTracks().forEach((track) => track.stop());
-  audioContext?.close();
+  audioContext?.close().catch(() => {});
   stream = undefined;
   audioContext = undefined;
   analyser = undefined;
+  animationFrame = undefined;
   video.srcObject = null;
   meter.value = 0;
   startButton.disabled = false;
@@ -127,7 +173,16 @@ function stopLive() {
 
 function renderCombined() {
   const decisions = [uploadDecision, liveDecision].filter(Boolean);
-  if (!decisions.length) return;
+  if (!decisions.length) {
+    finalResult.className = "result result--empty";
+    finalResult.replaceChildren();
+    const heading = document.createElement("strong");
+    heading.textContent = "No decision yet";
+    const detail = document.createElement("p");
+    detail.textContent = "Complete both tests to calculate a final decision.";
+    finalResult.append(heading, detail);
+    return;
+  }
   renderDecision(finalResult, combineDecisions(decisions));
 }
 
@@ -136,7 +191,9 @@ function renderDecision(element, decision) {
   element.className = `result result--${decision.action}`;
   element.replaceChildren();
   const heading = document.createElement("strong");
-  heading.textContent = `${decision.action.toUpperCase()} · risk ${decision.risk}/100`;
+  heading.textContent = decision.risk === null
+    ? decision.action.toUpperCase()
+    : `${decision.action.toUpperCase()} · heuristic score ${decision.risk}/100`;
   const list = document.createElement("ul");
   decision.reasons.forEach((reason) => {
     const item = document.createElement("li");

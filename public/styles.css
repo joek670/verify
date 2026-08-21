@@ -143,6 +143,7 @@ button:disabled { cursor: not-allowed; opacity: .38; }
 .result--allow { background: #d9f5e6; border-color: var(--green); color: var(--ink); }
 .result--review { background: #fff0c9; border-color: var(--amber); color: var(--ink); }
 .result--block { background: #ffe0dc; border-color: var(--red); color: var(--ink); }
+.result--inconclusive { background: var(--white); border-color: var(--line); color: var(--ink); }
 
 .decision-panel { padding-bottom: 6rem; padding-top: 6rem; }
 .thresholds { display: grid; grid-template-columns: repeat(3, 1fr); margin: 2rem 0; }

@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Local media provenance and liveness verification demo.">
+    <title>Verify | Media Risk Gate</title>
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <header class="masthead">
+      <a class="brand" href="#top" aria-label="Verify home"><span>V/</span> Verify</a>
+      <p>LOCAL MEDIA RISK GATE · NO UPLOAD</p>
+    </header>
+
+    <main id="top">
+      <section class="hero">
+        <div>
+          <p class="eyebrow">PROVENANCE + LIVENESS</p>
+          <h1>Trust needs more than an AI detector.</h1>
+          <p class="lede">Inspect image and voice files, run a live camera and microphone challenge, then apply an explainable allow, review, or block policy.</p>
+        </div>
+        <aside class="warning">
+          <strong>Important limit</strong>
+          <p>No detector can prove that media is human-made. Missing metadata is not proof, and AI metadata can be removed. Use this as a risk gate, not an accusation.</p>
+        </aside>
+      </section>
+
+      <section class="workspace" aria-label="Verification tests">
+        <article class="test-panel">
+          <div class="step">01</div>
+          <div>
+            <p class="eyebrow">FILE INSPECTION</p>
+            <h2>Check an image or voice file</h2>
+            <p>Reads the file locally for format mismatches, generation markers, editor metadata, and Content Credentials markers.</p>
+            <label class="file-picker" for="media-file">Choose media file</label>
+            <input id="media-file" type="file" accept="image/jpeg,image/png,audio/wav,audio/mpeg,audio/ogg,audio/mp4,audio/webm">
+            <p class="microcopy">JPEG, PNG, WAV, MP3, OGG, M4A, or WebM · maximum 50 MB</p>
+            <div id="upload-result" class="result" hidden aria-live="polite"></div>
+          </div>
+        </article>
+
+        <article class="test-panel">
+          <div class="step">02</div>
+          <div>
+            <p class="eyebrow">LIVE CHALLENGE</p>
+            <h2>Check camera and microphone activity</h2>
+            <p>Generates a random phrase and movement, then checks whether audio and video change during the response.</p>
+            <div class="capture">
+              <video id="camera-preview" muted playsinline aria-label="Camera preview"></video>
+              <div class="challenge">
+                <span>YOUR CHALLENGE</span>
+                <strong id="challenge-text">Start the test to receive a random challenge.</strong>
+                <label for="audio-level">Microphone activity</label>
+                <meter id="audio-level" min="0" max="1" value="0"></meter>
+              </div>
+            </div>
+            <div class="actions">
+              <button id="start-live" class="primary" type="button">Start live test</button>
+              <button id="complete-live" type="button" disabled>Challenge complete</button>
+              <button id="stop-live" type="button" disabled>Cancel</button>
+            </div>
+            <p class="microcopy">Camera and microphone data stay in this browser tab and are not recorded.</p>
+            <div id="live-result" class="result" hidden aria-live="polite"></div>
+          </div>
+        </article>
+      </section>
+
+      <section class="decision-panel">
+        <div>
+          <p class="eyebrow">ENFORCEMENT POLICY</p>
+          <h2>Block by risk, not by a single guess</h2>
+        </div>
+        <div class="thresholds" aria-label="Risk thresholds">
+          <span><b>0–34</b> Allow</span>
+          <span><b>35–69</b> Review</span>
+          <span><b>70–100</b> Block</span>
+        </div>
+        <div id="final-result" class="result result--empty" aria-live="polite">
+          <strong>No decision yet</strong>
+          <p>Complete either test to calculate a decision. Production systems should require both.</p>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <p>Verify is a demonstration, not forensic evidence. For production, validate C2PA signatures with a trusted verifier and add server-side rate limits, audit logs, human appeals, and privacy controls.</p>
+    </footer>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

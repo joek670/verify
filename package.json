@@ -1,0 +1,15 @@
+{
+  "name": "verify",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Local media provenance and liveness verification demo",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT"
+}

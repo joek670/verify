@@ -34,7 +34,14 @@ Writing those receipts to a file is off by default. To collect a series:
 $env:VERIFY_LOG = "trials.jsonl"; npm start
 ```
 
-Each trial is then appended to that file as one JSON object per line. Nothing leaves the machine: the record goes to the same `127.0.0.1` server that served the page, and it carries the decision and its measurements, never the file, the audio, or the video. Pick a path outside `public/` — the server refuses to start otherwise, because a log inside the served directory would be readable over the same origin that wrote it.
+Each trial is then appended to that file as one JSON object per line. Read the series back with:
+
+```powershell
+npm run trials
+```
+
+That prints the label-versus-decision table, the spread of each measurement next to the threshold it was judged against, and — as prominently — what the series does not show: whether a replay was ever attempted, and whether any signal failed to fire in every single run, which makes it a fixed penalty rather than a signal.
+ Nothing leaves the machine: the record goes to the same `127.0.0.1` server that served the page, and it carries the decision and its measurements, never the file, the audio, or the video. Pick a path outside `public/` — the server refuses to start otherwise, because a log inside the served directory would be readable over the same origin that wrote it.
 
 ### The replay trial
 

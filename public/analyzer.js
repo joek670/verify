@@ -18,6 +18,12 @@ export const LIVENESS_FLOOR_RISK = 35;
 // the recogniser's end-of-speech latency is not, and it is inside this measurement.
 export const CHALLENGE_WINDOW_SECONDS = { minimum: 2, maximum: 30 };
 
+// Fraction of samples that must carry speech, and mean frame-to-frame pixel change that
+// counts as movement. Both are guesses of the same kind as the window's upper bound, and
+// both are named rather than inlined so a trial series can be summarised against them.
+export const SPEECH_ACTIVITY_FLOOR = 0.15;
+export const VISUAL_MOTION_FLOOR = 0.025;
+
 const MEDIA_FORMATS = {
   "image/jpeg": { extensions: ["jpg", "jpeg"], mimeTypes: ["image/jpeg"] },
   "image/png": { extensions: ["png"], mimeTypes: ["image/png"] },
@@ -271,13 +277,13 @@ export function scoreLiveness({
   }
   // Measured only while the prompt is not being spoken, otherwise the app's own voice
   // carries this signal through the speakers and the check passes on its own output.
-  if (speechActivityRatio >= 0.15) {
+  if (speechActivityRatio >= SPEECH_ACTIVITY_FLOOR) {
     reasons.push("Sustained microphone activity was detected while the prompt was not being spoken");
   } else {
     score += 12;
     reasons.push("Sustained microphone activity was not detected while the prompt was not being spoken");
   }
-  if (visualMotion >= 0.025) {
+  if (visualMotion >= VISUAL_MOTION_FLOOR) {
     reasons.push("Frame-to-frame visual activity was detected");
   } else {
     score += 11;

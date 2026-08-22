@@ -6,7 +6,8 @@
   "type": "module",
   "scripts": {
     "start": "node server.js",
-    "test": "node --test"
+    "test": "node --test",
+    "trials": "node summarize-trials.js"
   },
   "engines": {
     "node": ">=20"

@@ -302,6 +302,16 @@ test("the window bounds the response, not the time the prompts take", () => {
   assert.match(instant.reasons.join(" "), /not counting the time the prompt was being spoken/);
 });
 
+test("reports the measured response time on both sides of the window", () => {
+  // The upper bound is an estimate. A reason that only says the response was inside the
+  // window gives a real run no way to correct it, so the measured number is printed
+  // whether or not it landed inside.
+  const inside = scoreLiveness({ ...recognized, responseSeconds: 12.34 });
+  const outside = scoreLiveness({ ...recognized, responseSeconds: CHALLENGE_WINDOW_SECONDS.maximum + 11.2 });
+  assert.match(inside.reasons.join(" "), /took 12\.3 seconds, inside/);
+  assert.match(outside.reasons.join(" "), /took 41\.2 seconds, outside/);
+});
+
 test("two turns defeat a pre-recorded clip but not a live relay", () => {
   // The axis this check actually covers is live versus replayed, not human versus
   // machine. A clip recorded before the challenge was issued can only match the first

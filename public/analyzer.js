@@ -258,11 +258,16 @@ export function scoreLiveness({
     reasons.push("On-device speech recognition was unavailable and the user did not mark the challenge complete");
   }
 
+  // Both branches print the measured time. The upper bound is an estimate, and an
+  // estimate whose reason never shows the number it was compared against cannot be
+  // corrected by running the check.
+  const measured = Number.isFinite(responseSeconds) ? `${responseSeconds.toFixed(1)} seconds` : "an unmeasured length of time";
+  const bounds = `the ${CHALLENGE_WINDOW_SECONDS.minimum} to ${CHALLENGE_WINDOW_SECONDS.maximum} second window, not counting the time the prompt was being spoken`;
   if (responseSeconds >= CHALLENGE_WINDOW_SECONDS.minimum && responseSeconds <= CHALLENGE_WINDOW_SECONDS.maximum) {
-    reasons.push("The response arrived inside the expected time window");
+    reasons.push(`The response took ${measured}, inside ${bounds}`);
   } else {
     score += 12;
-    reasons.push(`The response took longer or less time than the ${CHALLENGE_WINDOW_SECONDS.minimum} to ${CHALLENGE_WINDOW_SECONDS.maximum} second window, not counting the time the prompt was being spoken`);
+    reasons.push(`The response took ${measured}, outside ${bounds}`);
   }
   // Measured only while the prompt is not being spoken, otherwise the app's own voice
   // carries this signal through the speakers and the check passes on its own output.

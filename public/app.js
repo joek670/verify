@@ -25,17 +25,20 @@ const trialLogStatus = document.querySelector("#trial-log-status");
 const copyTrialButton = document.querySelector("#copy-trial");
 
 const RECOGNITION_LANGUAGE = "en-US";
-// `available()` is a lookup and should return immediately, but it has been observed
-// hanging instead of rejecting. `install()` may genuinely download a language pack, so
-// it gets far longer. A turn is bounded too: a recogniser that never fires `end` would
-// otherwise leave the exchange waiting on a user who has already stopped speaking.
 // RMS level a sample must reach to count as speech rather than room noise. It is a
 // guess, like the window's upper bound was, so the peak and mean levels a run actually
 // produced are recorded next to it instead of only the verdict it reached.
 const SPEECH_LEVEL = 0.08;
+// `available()` is a lookup and should return immediately, but it has been observed
+// hanging instead of rejecting. `install()` may genuinely download a language pack, so
+// it gets far longer. A turn is bounded too: a recogniser that never fires `end` would
+// otherwise leave the exchange waiting on a user who has already stopped speaking.
 const AVAILABILITY_TIMEOUT_MS = 3000;
 const INSTALL_TIMEOUT_MS = 20000;
 const TURN_TIMEOUT_MS = 15000;
+// Quiet gap after a segment that ends a turn whose answer is still incomplete. Long
+// enough to be a pause between words rather than the end of an answer.
+const ANSWER_GAP_MS = 2000;
 
 // Falls back rather than rejecting: every caller here treats a timeout as "this is not
 // available", never as an error worth showing the user.
@@ -366,35 +369,68 @@ function speakPrompt(text) {
 // One recogniser per turn rather than one spanning both, so each turn ends on its own
 // event and the two transcripts stay separate. Scoring the turns separately from a
 // single merged transcript would mean guessing where one answer ended.
-function recognizeTurn() {
+// A turn is an answer of several words, so the recogniser is not allowed to end the turn
+// at the first pause. `continuous = false` did exactly that: it returned one segment and
+// stopped, so a three word phrase could only ever arrive one word short and no answer
+// could match. Segments are accumulated instead, and the turn ends when the answer is
+// complete, when the speaker has been quiet long enough to have finished, or at the cap.
+function recognizeTurn(expectedWords) {
   return new Promise((resolve) => {
     const Recognition = window.SpeechRecognition ?? window.webkitSpeechRecognition;
     const recognition = new Recognition();
     recognition.lang = RECOGNITION_LANGUAGE;
-    recognition.continuous = false;
+    recognition.continuous = true;
     recognition.interimResults = false;
     recognition.maxAlternatives = 1;
     if ("processLocally" in recognition) recognition.processLocally = true;
 
+    const segments = [];
+    let confidence;
     let settled = false;
-    let timer;
+    let capTimer;
+    let gapTimer;
     const settle = (value) => {
       if (settled) return;
       settled = true;
-      clearTimeout(timer);
+      clearTimeout(capTimer);
+      clearTimeout(gapTimer);
       resolve(value);
     };
-    timer = setTimeout(() => {
+    // Everything heard so far, however many segments it arrived in.
+    const finish = () => settle({ confidence, text: segments.join(" ") });
+
+    capTimer = setTimeout(() => {
       recognition.abort();
-      settle({ text: "" });
+      finish();
     }, TURN_TIMEOUT_MS);
 
     recognition.addEventListener("result", (event) => {
-      const alternative = event.results[event.results.length - 1]?.[0];
-      settle({ text: alternative?.transcript ?? "", confidence: alternative?.confidence });
+      for (let index = event.resultIndex; index < event.results.length; index += 1) {
+        const alternative = event.results[index].isFinal ? event.results[index][0] : undefined;
+        if (!alternative) continue;
+        segments.push(alternative.transcript);
+        // The lowest of the segments, for the same reason the lowest of the two turns is
+        // reported: it is the conservative one, and it never moves the score either way.
+        if (typeof alternative.confidence === "number") {
+          confidence = confidence === undefined ? alternative.confidence : Math.min(confidence, alternative.confidence);
+        }
+      }
+      // Every requested word is in, so the answer is complete and there is nothing to
+      // wait for. Ending here also keeps the silence after an answer out of the
+      // response time.
+      if (matchesExpectedWords(segments.join(" "), expectedWords)) {
+        recognition.stop();
+        finish();
+        return;
+      }
+      clearTimeout(gapTimer);
+      gapTimer = setTimeout(() => {
+        recognition.stop();
+        finish();
+      }, ANSWER_GAP_MS);
     });
-    recognition.addEventListener("error", () => settle({ text: "" }));
-    recognition.addEventListener("end", () => settle({ text: "" }));
+    recognition.addEventListener("error", () => finish());
+    recognition.addEventListener("end", () => finish());
 
     activeRecognition = recognition;
     // Recognising the track `getUserMedia` already returned keeps the meter and the
@@ -408,7 +444,7 @@ function recognizeTurn() {
       try {
         recognition.start();
       } catch {
-        settle({ text: "" });
+        finish();
       }
     }
   });
@@ -445,7 +481,7 @@ async function runChallenge(currentSession) {
     challengeText.textContent = turn.prompt;
     await speakPrompt(turn.prompt);
     if (currentSession !== sessionId) return;
-    const heard = await recognizeTurn();
+    const heard = await recognizeTurn(turn.expectedWords);
     if (currentSession !== sessionId) return;
     turnResults.push({
       confidence: heard.confidence,

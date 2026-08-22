@@ -301,3 +301,18 @@ test("the window bounds the response, not the time the prompts take", () => {
   assert.equal(instant.risk - typical.risk, 12, "an answer faster than the window is penalized");
   assert.match(instant.reasons.join(" "), /not counting the time the prompt was being spoken/);
 });
+
+test("two turns defeat a pre-recorded clip but not a live relay", () => {
+  // The axis this check actually covers is live versus replayed, not human versus
+  // machine. A clip recorded before the challenge was issued can only match the first
+  // turn, because the recall turn asks for a word chosen after the recording was made.
+  const preRecorded = scoreLiveness({ ...recognized, secondTurnMatched: false });
+  // A live relay hears the prompt and answers it. So does synthetic speech played into
+  // the microphone: the recognizer does not know what produced the audio. Both produce
+  // exactly the inputs a genuine user produces, and nothing in the score separates them.
+  const liveRelay = scoreLiveness({ ...recognized });
+  const genuine = scoreLiveness({ ...recognized });
+  assert.ok(preRecorded.risk > liveRelay.risk, "a pre-recorded reply is caught");
+  assert.deepEqual(liveRelay, genuine, "a live or synthetic reply is not");
+  assert.equal(genuine.action, "review", "which is why the floor stays and allow is unreachable");
+});

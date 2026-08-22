@@ -29,7 +29,7 @@ npm test
 - Presence of C2PA or Content Credentials-like text, reported without changing risk
 - Words of a generated challenge phrase, recognized on the device
 - A second turn that asks for one word from the first, which a recording made before the challenge was issued cannot answer
-- Completion time for the whole two-turn exchange
+- Time the user held the floor across the two turns, excluding the time the prompts were being spoken
 - Sustained microphone activity while the spoken prompt is silent
 - Frame-to-frame pixel activity during the response
 

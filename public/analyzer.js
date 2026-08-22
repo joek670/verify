@@ -7,17 +7,16 @@ export const MAX_FILE_BYTES = 50 * 1024 * 1024;
 // falls below this floor, so a liveness check alone can never produce `allow`.
 export const LIVENESS_FLOOR_RISK = 35;
 
-// Covers the whole exchange as wall clock time, including the spoken prompts. Measured
-// on Chrome 151, speaking both prompts alone takes 8.7 to 9.7 seconds, and a typical
-// answered exchange lands near 20 seconds once the two replies and the recogniser's
-// end-of-speech detection are included.
+// Bounds the time the user held the floor, not the wall clock time of the exchange.
+// Speaking the prompts measured 8.7 to 9.7 seconds on Chrome 151, so a wall clock
+// window could not have a meaningful lower bound on the recognised path: nothing could
+// finish faster than the app's own voice. That time is excluded here, which makes both
+// bounds describe the response itself and lets the lower bound catch a near instant
+// answer on either path.
 //
-// The minimum is therefore only meaningful on the fallback path, where one prompt is
-// spoken and an instant "complete" click is what it catches. On the recognised path
-// nothing can finish that quickly, so the lower bound never fires. Measuring the user's
-// own response time instead of wall clock would fix that, at the cost of a change to
-// what this term means.
-export const CHALLENGE_WINDOW_SECONDS = { minimum: 5, maximum: 50 };
+// The upper bound is still an estimate. Excluded prompt time is measured exactly, but
+// the recogniser's end-of-speech latency is not, and it is inside this measurement.
+export const CHALLENGE_WINDOW_SECONDS = { minimum: 2, maximum: 30 };
 
 const MEDIA_FORMATS = {
   "image/jpeg": { extensions: ["jpg", "jpeg"], mimeTypes: ["image/jpeg"] },
@@ -215,7 +214,7 @@ export function scoreLiveness({
   firstTurnMatched = false,
   secondTurnMatched = false,
   recognitionConfidence,
-  durationSeconds,
+  responseSeconds,
   speechActivityRatio,
   visualMotion,
   startupError,
@@ -259,11 +258,11 @@ export function scoreLiveness({
     reasons.push("On-device speech recognition was unavailable and the user did not mark the challenge complete");
   }
 
-  if (durationSeconds >= CHALLENGE_WINDOW_SECONDS.minimum && durationSeconds <= CHALLENGE_WINDOW_SECONDS.maximum) {
+  if (responseSeconds >= CHALLENGE_WINDOW_SECONDS.minimum && responseSeconds <= CHALLENGE_WINDOW_SECONDS.maximum) {
     reasons.push("The response arrived inside the expected time window");
   } else {
     score += 12;
-    reasons.push(`The whole exchange was outside the ${CHALLENGE_WINDOW_SECONDS.minimum} to ${CHALLENGE_WINDOW_SECONDS.maximum} second window`);
+    reasons.push(`The response took longer or less time than the ${CHALLENGE_WINDOW_SECONDS.minimum} to ${CHALLENGE_WINDOW_SECONDS.maximum} second window, not counting the time the prompt was being spoken`);
   }
   // Measured only while the prompt is not being spoken, otherwise the app's own voice
   // carries this signal through the speakers and the check passes on its own output.

@@ -72,35 +72,35 @@ test("returns inconclusive for unsupported and oversized files", () => {
 });
 
 test("does not allow unverified activity as liveness", () => {
-  const decision = scoreLiveness({ userClaimedComplete: true, durationSeconds: 8, speechActivityRatio: 0.6, visualMotion: 0.1 });
+  const decision = scoreLiveness({ userClaimedComplete: true, responseSeconds: 8, speechActivityRatio: 0.6, visualMotion: 0.1 });
   assert.equal(decision.action, "review");
   assert.match(decision.reasons.join(" "), /does not verify/i);
 });
 
 test("blocks an incomplete static and silent challenge", () => {
-  const decision = scoreLiveness({ userClaimedComplete: false, durationSeconds: 2, speechActivityRatio: 0, visualMotion: 0 });
+  const decision = scoreLiveness({ userClaimedComplete: false, responseSeconds: 0.5, speechActivityRatio: 0, visualMotion: 0 });
   assert.equal(decision.action, "block");
   assert.equal(decision.risk, 100);
 });
 
 test("does not accept a single transient audio sample", () => {
-  const sustained = scoreLiveness({ userClaimedComplete: true, durationSeconds: 8, speechActivityRatio: 0.6, visualMotion: 0.1 });
-  const transient = scoreLiveness({ userClaimedComplete: true, durationSeconds: 8, speechActivityRatio: 0.01, visualMotion: 0.1 });
+  const sustained = scoreLiveness({ userClaimedComplete: true, responseSeconds: 8, speechActivityRatio: 0.6, visualMotion: 0.1 });
+  const transient = scoreLiveness({ userClaimedComplete: true, responseSeconds: 8, speechActivityRatio: 0.01, visualMotion: 0.1 });
   assert.notEqual(transient.action, "allow");
   assert.ok(transient.risk > sustained.risk);
   assert.match(transient.reasons.join(" "), /sustained microphone activity/i);
 });
 
 test("never scores liveness below the unverified floor", () => {
-  const best = scoreLiveness({ userClaimedComplete: true, durationSeconds: 8, speechActivityRatio: 0.9, visualMotion: 0.9 });
+  const best = scoreLiveness({ userClaimedComplete: true, responseSeconds: 8, speechActivityRatio: 0.9, visualMotion: 0.9 });
   assert.equal(best.risk, LIVENESS_FLOOR_RISK);
   assert.equal(best.action, "review");
   assert.match(best.reasons.join(" "), /cannot produce allow on its own/i);
 });
 
 test("keeps failing liveness signals distinguishable instead of saturating", () => {
-  const quietAndStill = scoreLiveness({ userClaimedComplete: true, durationSeconds: 8, speechActivityRatio: 0, visualMotion: 0 });
-  const abandoned = scoreLiveness({ userClaimedComplete: false, durationSeconds: 2, speechActivityRatio: 0, visualMotion: 0 });
+  const quietAndStill = scoreLiveness({ userClaimedComplete: true, responseSeconds: 8, speechActivityRatio: 0, visualMotion: 0 });
+  const abandoned = scoreLiveness({ userClaimedComplete: false, responseSeconds: 0.5, speechActivityRatio: 0, visualMotion: 0 });
   assert.ok(quietAndStill.risk < abandoned.risk);
   assert.equal(quietAndStill.action, "review");
   assert.equal(abandoned.action, "block");
@@ -108,7 +108,7 @@ test("keeps failing liveness signals distinguishable instead of saturating", () 
 
 test("no combination of checks can reach a final allow", () => {
   const bestUpload = scoreUpload(extractSignals(Uint8Array.from([0xff, 0xd8, 0xff, 0xe0]), "image/jpeg", "camera.jpg"), 4);
-  const bestLiveness = scoreLiveness({ userClaimedComplete: true, durationSeconds: 8, speechActivityRatio: 0.9, visualMotion: 0.9 });
+  const bestLiveness = scoreLiveness({ userClaimedComplete: true, responseSeconds: 8, speechActivityRatio: 0.9, visualMotion: 0.9 });
   assert.equal(bestUpload.action, "allow");
   assert.equal(combineDecisions([bestUpload, bestLiveness]).action, "review");
 });
@@ -177,7 +177,7 @@ const recognized = {
   recognitionAvailable: true,
   firstTurnMatched: true,
   secondTurnMatched: true,
-  durationSeconds: 12,
+  responseSeconds: 12,
   speechActivityRatio: 0.6,
   visualMotion: 0.1,
 };
@@ -252,7 +252,7 @@ test("keeps the penalty budget at exactly 100 on the recognized path", () => {
     recognitionAvailable: true,
     firstTurnMatched: false,
     secondTurnMatched: false,
-    durationSeconds: 2,
+    responseSeconds: 0.5,
     speechActivityRatio: 0,
     visualMotion: 0,
   });
@@ -271,30 +271,33 @@ test("reports recognizer confidence without letting it change the score", () => 
 });
 
 test("falls back to self-attestation when recognition is unavailable", () => {
-  const claimed = scoreLiveness({ userClaimedComplete: true, durationSeconds: 12, speechActivityRatio: 0.6, visualMotion: 0.1 });
-  const abandoned = scoreLiveness({ userClaimedComplete: false, durationSeconds: 12, speechActivityRatio: 0.6, visualMotion: 0.1 });
+  const claimed = scoreLiveness({ userClaimedComplete: true, responseSeconds: 12, speechActivityRatio: 0.6, visualMotion: 0.1 });
+  const abandoned = scoreLiveness({ userClaimedComplete: false, responseSeconds: 12, speechActivityRatio: 0.6, visualMotion: 0.1 });
   assert.equal(claimed.risk, LIVENESS_FLOOR_RISK);
   assert.equal(abandoned.risk - claimed.risk, 30);
   assert.match(claimed.reasons.join(" "), /speech recognition was unavailable/i);
 });
 
 test("the time window covers the whole two-turn exchange", () => {
-  const inside = scoreLiveness({ ...recognized, durationSeconds: 30 });
-  const tooSlow = scoreLiveness({ ...recognized, durationSeconds: CHALLENGE_WINDOW_SECONDS.maximum + 1 });
-  const tooFast = scoreLiveness({ ...recognized, durationSeconds: CHALLENGE_WINDOW_SECONDS.minimum - 1 });
+  const inside = scoreLiveness({ ...recognized, responseSeconds: 30 });
+  const tooSlow = scoreLiveness({ ...recognized, responseSeconds: CHALLENGE_WINDOW_SECONDS.maximum + 1 });
+  const tooFast = scoreLiveness({ ...recognized, responseSeconds: CHALLENGE_WINDOW_SECONDS.minimum - 1 });
   assert.equal(inside.risk, LIVENESS_FLOOR_RISK);
   assert.equal(tooSlow.risk - inside.risk, 12);
   assert.equal(tooFast.risk - inside.risk, 12);
 });
 
-test("the window accommodates the time the spoken prompts take", () => {
-  // Speaking both prompts measured 8.7 to 9.7 seconds on Chrome 151, so a recognized
-  // exchange cannot finish much before 12 seconds once the two replies and the
-  // recognizer's end-of-speech detection are included. Neither may be penalized.
-  const promptFloor = scoreLiveness({ ...recognized, durationSeconds: 12 });
-  const typical = scoreLiveness({ ...recognized, durationSeconds: 20 });
-  const hesitant = scoreLiveness({ ...recognized, durationSeconds: 40 });
-  assert.equal(promptFloor.risk, LIVENESS_FLOOR_RISK);
+test("the window bounds the response, not the time the prompts take", () => {
+  // Speaking both prompts measured 8.7 to 9.7 seconds on Chrome 151. That time is
+  // excluded before scoring, so the lower bound can be small enough to catch a near
+  // instant answer on either path instead of sitting below what is even possible.
+  const brisk = scoreLiveness({ ...recognized, responseSeconds: 4 });
+  const typical = scoreLiveness({ ...recognized, responseSeconds: 12 });
+  const hesitant = scoreLiveness({ ...recognized, responseSeconds: 28 });
+  const instant = scoreLiveness({ ...recognized, responseSeconds: 0.4 });
+  assert.equal(brisk.risk, LIVENESS_FLOOR_RISK);
   assert.equal(typical.risk, LIVENESS_FLOOR_RISK);
   assert.equal(hesitant.risk, LIVENESS_FLOOR_RISK);
+  assert.equal(instant.risk - typical.risk, 12, "an answer faster than the window is penalized");
+  assert.match(instant.reasons.join(" "), /not counting the time the prompt was being spoken/);
 });

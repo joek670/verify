@@ -54,6 +54,7 @@ let uploadId = 0;
 let recognitionAvailable = false;
 let activeRecognition;
 let promptSpeaking = false;
+let spokenPromptMs = 0;
 
 uploadInput.addEventListener("change", async () => {
   const file = uploadInput.files?.[0];
@@ -171,7 +172,10 @@ function beginMeasurements() {
 
 function finishLive(completed, turnResults = []) {
   if (!stream) return;
-  const durationSeconds = (performance.now() - startedAt) / 1000;
+  // Time the user actually held the floor. The app's own spoken prompts are excluded,
+  // otherwise the lower bound would sit below the time the prompts alone take and could
+  // never catch a near instant answer.
+  const responseSeconds = Math.max(0, performance.now() - startedAt - spokenPromptMs) / 1000;
   const speechActivityRatio = audioSampleCount ? activeAudioSampleCount / audioSampleCount : 0;
   const visualMotion = motionSampleCount ? motionTotal / motionSampleCount : 0;
   // The lowest confidence of the two turns is the conservative one to report. It is
@@ -187,7 +191,7 @@ function finishLive(completed, turnResults = []) {
     firstTurnMatched: turnResults[0]?.matched ?? false,
     secondTurnMatched: turnResults[1]?.matched ?? false,
     recognitionConfidence: confidences.length ? Math.min(...confidences) : undefined,
-    durationSeconds,
+    responseSeconds,
     speechActivityRatio,
     visualMotion,
   });
@@ -243,7 +247,9 @@ function speakPrompt(text) {
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = RECOGNITION_LANGUAGE;
     promptSpeaking = true;
+    const startedSpeakingAt = performance.now();
     const finish = () => {
+      if (promptSpeaking) spokenPromptMs += performance.now() - startedSpeakingAt;
       promptSpeaking = false;
       resolve();
     };
@@ -310,6 +316,7 @@ async function runChallenge(currentSession) {
   if (currentSession !== sessionId) return;
 
   startedAt = performance.now();
+  spokenPromptMs = 0;
   audioSampleCount = 0;
   activeAudioSampleCount = 0;
   motionTotal = 0;

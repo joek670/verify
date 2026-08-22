@@ -88,7 +88,8 @@ For production, require both upload and liveness checks for sensitive actions. A
 
 - Processing is local in the browser.
 - Speech recognition is on-device only; the networked recognizer is refused rather than used as a fallback.
-- Trial logging is off unless `VERIFY_LOG` is set. With it set, the claim narrows from "local in the browser" to "local to this machine": the labeled decision and its measurements — never the media — are posted to the loopback server and appended to a file you named. With it unset the route does not exist and the server keeps no state.
+- Trial logging is off unless `VERIFY_LOG` is set. With it set, the claim narrows from "local in the browser" to "local to this machine": the labeled decision and its measurements are posted to the loopback server and appended to a file you named. With it unset the route does not exist and the server keeps no state.
+- A trial record carries the recognized text of each turn, because an unmatched turn is otherwise indistinguishable from one where nothing was heard. It never carries audio, video, or the inspected file. It is still a transcript of what you said, written to disk: delete the log when the series is over.
 - The included server binds only to `127.0.0.1` and sends a restrictive Content Security Policy.
 - The app uses an explicit media allowlist and a 50 MB inspection limit.
 - The live stream is stopped after completion or cancellation, and any in-flight recognition and speech is aborted with it.

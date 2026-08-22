@@ -29,6 +29,10 @@ const RECOGNITION_LANGUAGE = "en-US";
 // hanging instead of rejecting. `install()` may genuinely download a language pack, so
 // it gets far longer. A turn is bounded too: a recogniser that never fires `end` would
 // otherwise leave the exchange waiting on a user who has already stopped speaking.
+// RMS level a sample must reach to count as speech rather than room noise. It is a
+// guess, like the window's upper bound was, so the peak and mean levels a run actually
+// produced are recorded next to it instead of only the verdict it reached.
+const SPEECH_LEVEL = 0.08;
 const AVAILABILITY_TIMEOUT_MS = 3000;
 const INSTALL_TIMEOUT_MS = 20000;
 const TURN_TIMEOUT_MS = 15000;
@@ -51,6 +55,8 @@ let animationFrame;
 let startedAt = 0;
 let audioSampleCount = 0;
 let activeAudioSampleCount = 0;
+let audioLevelTotal = 0;
+let peakAudioLevel = 0;
 let motionTotal = 0;
 let motionSampleCount = 0;
 let previousFrame;
@@ -158,7 +164,9 @@ function beginMeasurements() {
     // Echo cancellation reduces it but is tuned for duplex calls, not for zeroing it.
     if (!promptSpeaking && !window.speechSynthesis?.speaking) {
       audioSampleCount += 1;
-      if (level >= 0.08) activeAudioSampleCount += 1;
+      audioLevelTotal += level;
+      if (level > peakAudioLevel) peakAudioLevel = level;
+      if (level >= SPEECH_LEVEL) activeAudioSampleCount += 1;
     }
     meter.value = Math.min(1, level * 5);
 
@@ -280,6 +288,17 @@ function finishLive(completed, turnResults = []) {
     responseSeconds: Number(responseSeconds.toFixed(2)),
     speechActivityRatio: Number(speechActivityRatio.toFixed(3)),
     visualMotion: Number(visualMotion.toFixed(4)),
+    // What each signal was derived from, not just the verdict it reached. A ratio of 0
+    // says nothing about whether the microphone was silent, whether the threshold is set
+    // too high, or whether the samples were never taken; these three separate those.
+    audioSampleCount,
+    peakAudioLevel: Number(peakAudioLevel.toFixed(3)),
+    meanAudioLevel: Number((audioSampleCount ? audioLevelTotal / audioSampleCount : 0).toFixed(3)),
+    speechLevelThreshold: SPEECH_LEVEL,
+    motionSampleCount,
+    // An unmatched turn can mean the words were wrong or that nothing was heard at all,
+    // and the score cannot tell those apart. The transcript can.
+    turns: turnResults.map(({ expected, matched, text }) => ({ expected, heard: text ?? "", matched })),
   });
 }
 
@@ -405,6 +424,8 @@ async function runChallenge(currentSession) {
   challengeStarted = true;
   audioSampleCount = 0;
   activeAudioSampleCount = 0;
+  audioLevelTotal = 0;
+  peakAudioLevel = 0;
   motionTotal = 0;
   motionSampleCount = 0;
   previousFrame = undefined;
@@ -426,7 +447,12 @@ async function runChallenge(currentSession) {
     if (currentSession !== sessionId) return;
     const heard = await recognizeTurn();
     if (currentSession !== sessionId) return;
-    turnResults.push({ matched: matchesExpectedWords(heard.text, turn.expectedWords), confidence: heard.confidence });
+    turnResults.push({
+      confidence: heard.confidence,
+      matched: matchesExpectedWords(heard.text, turn.expectedWords),
+      text: heard.text,
+      expected: turn.expectedWords,
+    });
   }
   finishLive(true, turnResults);
 }

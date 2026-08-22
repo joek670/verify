@@ -22,6 +22,35 @@ Open <http://127.0.0.1:4173>. Camera and microphone access works on localhost. F
 npm test
 ```
 
+## Trials
+
+A decision is not a measurement. The gate reports `review` whether the run was genuine, relayed, or synthetic, so a pile of outcomes confirms nothing on its own. Accuracy is decisions compared against ground truth, which means every run needs a label you supply before you start it.
+
+The label selector sits above the live test: **genuine**, **pre-recorded**, **relayed**, or **synthetic**. It locks while a run is in progress, so it cannot be changed once the decision is on screen. Every finished attempt produces a trial receipt — copyable JSON holding the label, the decision, and the measurements the score was computed from, including the measured response time. Attempts that could not run are recorded too, so a series keeps an honest denominator.
+
+Writing those receipts to a file is off by default. To collect a series:
+
+```powershell
+$env:VERIFY_LOG = "trials.jsonl"; npm start
+```
+
+Each trial is then appended to that file as one JSON object per line. Nothing leaves the machine: the record goes to the same `127.0.0.1` server that served the page, and it carries the decision and its measurements, never the file, the audio, or the video. Pick a path outside `public/` — the server refuses to start otherwise, because a log inside the served directory would be readable over the same origin that wrote it.
+
+### The replay trial
+
+The trial worth running first, because it exercises the only axis this check covers:
+
+1. Label a run **genuine** and complete a challenge normally. Note the action and the response time in the receipt.
+2. Record yourself answering a challenge, with audio.
+3. Start a new run, label it **pre-recorded**, and play that recording back to the camera and microphone.
+4. Compare. The recall turn asks for a word chosen after the recording was made, so `secondTurnMatched` should be `false` and the risk should be strictly higher than the genuine run.
+
+A relayed or synthetic trial is expected to produce the opposite result: `test/analyzer.test.js` asserts that a live relay's decision is identical to a genuine user's, because the recognizer does not know what produced the audio. That is the limit being demonstrated, not a defect to fix.
+
+### The response-time window
+
+`CHALLENGE_WINDOW_SECONDS` is 2 to 30 seconds of held floor, excluding the time the prompts are being spoken. The lower bound is grounded — speaking both prompts measured 8.7 to 9.7 seconds on Chrome 151 — but **the upper bound is an estimate, and no measured run has been recorded against it yet.** Every decision now prints the time it measured, so a run corrects it. Move the constant when there is a series to move it against, not before.
+
 ## Signals
 
 - File signature compared with the declared MIME type and extension
@@ -59,6 +88,7 @@ For production, require both upload and liveness checks for sensitive actions. A
 
 - Processing is local in the browser.
 - Speech recognition is on-device only; the networked recognizer is refused rather than used as a fallback.
+- Trial logging is off unless `VERIFY_LOG` is set. With it set, the claim narrows from "local in the browser" to "local to this machine": the labeled decision and its measurements — never the media — are posted to the loopback server and appended to a file you named. With it unset the route does not exist and the server keeps no state.
 - The included server binds only to `127.0.0.1` and sends a restrictive Content Security Policy.
 - The app uses an explicit media allowlist and a 50 MB inspection limit.
 - The live stream is stopped after completion or cancellation, and any in-flight recognition and speech is aborted with it.

@@ -48,7 +48,18 @@ fallback path the spoken response is not checked, **self-attestation** (the user
 the challenge complete) returns in its place, and the reasons say so.
 
 **Response time** — `responseSeconds`: the time the user held the floor, excluding the
-time the app's prompts were being spoken. Not wall clock.
+time the app's prompts were being spoken. Not wall clock. Reported in the reasons on both
+sides of the window, because the window's upper bound is an estimate and an estimate that
+never prints the number it compared cannot be corrected by running the check.
+
+**Trial** — one recorded attempt: the label, the decision, and the measurements the score
+was computed from. Every attempt is recorded, including one that could not run, so a
+series has an honest denominator.
+
+**Label** — the ground truth the operator asserts *before* a run: `genuine`,
+`pre-recorded`, `relayed`, or `synthetic`. Never produced by the gate. A decision without
+a label measures nothing, because the gate reports `review` for a genuine run and a
+relayed one alike.
 
 **Signal** — one input to a score. **Marker** — specific generator or C2PA text found in a
 file, weak and unauthenticated. **Sniffed type** — the format read from the file
@@ -74,8 +85,11 @@ fallback paths, so each failing signal stays distinguishable instead of saturati
 `block`. Adding a signal means taking points from an existing term, not appending a new
 one.
 
-Nothing leaves the browser. Speech recognition is on-device only; the networked
-recognizer is refused rather than used as a fallback.
+Nothing leaves the browser by default. Speech recognition is on-device only; the
+networked recognizer is refused rather than used as a fallback. Trial logging is the one
+exception and is opt-in: with `VERIFY_LOG` set, the labeled decision and its measurements
+— never media — are posted to the loopback server that served the page and appended to a
+file on this machine. Unset, the route does not exist and the server keeps no state.
 
 `test/analyzer.test.js` encodes these invariants directly, including that no combination
 of checks reaches `allow`. A change that breaks one should have to delete the test that

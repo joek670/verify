@@ -5,3 +5,6 @@ Thumbs.db
 
 # Agent planning scratch (local issue tracker) — not published on a public repo
 .scratch/
+
+# Labeled trial records written when VERIFY_LOG is set
+*.jsonl

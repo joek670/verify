@@ -18,6 +18,11 @@ const stopButton = document.querySelector("#stop-live");
 const video = document.querySelector("#camera-preview");
 const challengeText = document.querySelector("#challenge-text");
 const meter = document.querySelector("#audio-level");
+const trialLabel = document.querySelector("#trial-label");
+const trialReceipt = document.querySelector("#trial-receipt");
+const trialJson = document.querySelector("#trial-json");
+const trialLogStatus = document.querySelector("#trial-log-status");
+const copyTrialButton = document.querySelector("#copy-trial");
 
 const RECOGNITION_LANGUAGE = "en-US";
 // `available()` is a lookup and should return immediately, but it has been observed
@@ -82,6 +87,10 @@ startButton.addEventListener("click", async () => {
   liveDecision = undefined;
   recognitionAvailable = false;
   liveResult.hidden = true;
+  trialReceipt.hidden = true;
+  // Locked for the duration of the run. A label that can still be changed once the
+  // decision is on screen is not ground truth, it is a reaction to the outcome.
+  trialLabel.disabled = true;
   renderCombined();
   let acquiredStream;
   try {
@@ -110,10 +119,7 @@ startButton.addEventListener("click", async () => {
     // challenge" with no decision and no way forward except Cancel.
     runChallenge(currentSession).catch(() => {
       if (currentSession !== sessionId) return;
-      liveDecision = scoreLiveness({ startupError: "The live activity check could not run the challenge" });
-      renderDecision(liveResult, liveDecision);
-      renderCombined();
-      stopLive();
+      publishLiveDecision(scoreLiveness({ startupError: "The live activity check could not run the challenge" }));
     });
   } catch (error) {
     acquiredStream?.getTracks().forEach((track) => track.stop());
@@ -124,10 +130,7 @@ startButton.addEventListener("click", async () => {
       NotReadableError: "The camera or microphone could not be opened",
       NotSupportedError: "Media capture is not supported in this browser",
     };
-    liveDecision = scoreLiveness({ startupError: messages[error?.name] ?? "The live activity check could not start" });
-    renderDecision(liveResult, liveDecision);
-    renderCombined();
-    stopLive();
+    publishLiveDecision(scoreLiveness({ startupError: messages[error?.name] ?? "The live activity check could not start" }));
   }
 });
 
@@ -179,6 +182,62 @@ function beginMeasurements() {
   measure();
 }
 
+// A decision cannot measure accuracy on its own: the gate reports `review` whether the
+// run was genuine, relayed, or synthetic. Accuracy is decisions compared against ground
+// truth, so every trial carries the label the operator asserted before starting, and
+// every attempt is recorded — including one that never got as far as a challenge, so the
+// denominator of a trial series stays honest.
+function recordTrial(decision, measurements) {
+  const trial = {
+    at: new Date().toISOString(),
+    label: trialLabel.value,
+    action: decision.action,
+    risk: decision.risk,
+    ...measurements,
+    userAgent: navigator.userAgent,
+  };
+  trialJson.textContent = JSON.stringify(trial, null, 2);
+  trialReceipt.hidden = false;
+  trialLogStatus.textContent = "";
+  // Trial logging is opt-in on the server, so a 404 is the ordinary case and must not
+  // read as a failure. The receipt above is the record either way.
+  fetch("/trials", {
+    body: JSON.stringify(trial),
+    headers: { "Content-Type": "application/json" },
+    method: "POST",
+  })
+    .then((response) => {
+      trialLogStatus.textContent = response.ok
+        ? "Appended to the trial log on this machine"
+        : "Not logged; copy the JSON to keep it";
+    })
+    .catch(() => {
+      trialLogStatus.textContent = "Not logged; copy the JSON to keep it";
+    });
+}
+
+// Every path that produces a liveness decision ends here, so a decision can never be
+// shown without also being recorded as a trial.
+function publishLiveDecision(decision, measurements = null) {
+  liveDecision = decision;
+  renderDecision(liveResult, decision);
+  renderCombined();
+  recordTrial(decision, measurements);
+  stopLive();
+}
+
+copyTrialButton.addEventListener("click", async () => {
+  try {
+    await navigator.clipboard.writeText(trialJson.textContent);
+    copyTrialButton.textContent = "Copied";
+  } catch {
+    copyTrialButton.textContent = "Copy failed; select the text";
+  }
+  setTimeout(() => {
+    copyTrialButton.textContent = "Copy JSON";
+  }, 2000);
+});
+
 function finishLive(completed, turnResults = []) {
   if (!stream) return;
   // Cancelling while the recogniser is still being prepared ends a check that never
@@ -186,10 +245,7 @@ function finishLive(completed, turnResults = []) {
   // response time measured from a previous session and silence that nobody was asked
   // to break. A check that could not run is inconclusive, not a block.
   if (!challengeStarted) {
-    liveDecision = scoreLiveness({ startupError: "The live activity check was cancelled before the challenge began" });
-    renderDecision(liveResult, liveDecision);
-    renderCombined();
-    stopLive();
+    publishLiveDecision(scoreLiveness({ startupError: "The live activity check was cancelled before the challenge began" }));
     return;
   }
   // Time the user actually held the floor. The app's own spoken prompts are excluded,
@@ -202,7 +258,7 @@ function finishLive(completed, turnResults = []) {
   // reported only; `scoreLiveness` is not allowed to move the score with it.
   const confidences = turnResults.map(({ confidence }) => confidence).filter((value) => typeof value === "number");
 
-  liveDecision = scoreLiveness({
+  const inputs = {
     userClaimedComplete: completed,
     // Cancelling midway through a recognised exchange still scores on the recognised
     // path, with the unanswered turns unmatched, rather than reporting that
@@ -214,10 +270,17 @@ function finishLive(completed, turnResults = []) {
     responseSeconds,
     speechActivityRatio,
     visualMotion,
+  };
+  // The same inputs the score was computed from, rounded for the log rather than for the
+  // score. The response time is the reason this record exists: the window's upper bound
+  // is an estimate, and only measured runs can correct it.
+  publishLiveDecision(scoreLiveness(inputs), {
+    ...inputs,
+    recognitionConfidence: inputs.recognitionConfidence ?? null,
+    responseSeconds: Number(responseSeconds.toFixed(2)),
+    speechActivityRatio: Number(speechActivityRatio.toFixed(3)),
+    visualMotion: Number(visualMotion.toFixed(4)),
   });
-  renderDecision(liveResult, liveDecision);
-  renderCombined();
-  stopLive();
 }
 
 function stopLive() {
@@ -240,6 +303,7 @@ function stopLive() {
   completeButton.disabled = true;
   completeButton.hidden = true;
   stopButton.disabled = true;
+  trialLabel.disabled = false;
 }
 
 // Absence of the on-device API is treated as unavailable rather than as permission to

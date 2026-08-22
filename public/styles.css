@@ -136,6 +136,28 @@ video {
 .challenge span, .challenge label { font-size: .7rem; font-weight: 800; letter-spacing: .12em; }
 .challenge strong { font-family: Georgia, serif; font-size: 1.5rem; line-height: 1.25; margin: 1rem 0 2rem; }
 meter { width: 100%; }
+.trial { margin-top: 2rem; }
+.trial label { display: block; font-size: .7rem; font-weight: 800; letter-spacing: .12em; }
+.trial select {
+  background: #19352c;
+  border: 1px solid #75857e;
+  color: var(--white);
+  font: inherit;
+  margin: .6rem 0 .5rem;
+  max-width: 46ch;
+  min-height: 48px;
+  padding: .6rem .75rem;
+  width: 100%;
+}
+.trial select:focus-visible { outline: 3px solid var(--amber); outline-offset: 3px; }
+.trial select:disabled { cursor: not-allowed; opacity: .38; }
+
+.trial-receipt { border: 1px solid #40524b; margin-top: 1.5rem; padding: 1rem 1.25rem; }
+.trial-receipt__head { align-items: center; display: flex; flex-wrap: wrap; gap: .75rem; }
+.trial-receipt__head > span:first-child { font-size: .7rem; font-weight: 800; letter-spacing: .12em; }
+.trial-receipt__head button { min-height: 40px; padding: .4rem .9rem; }
+.trial-receipt pre { font-size: .8rem; margin: 1rem 0 0; overflow-x: auto; white-space: pre; }
+
 .actions { display: flex; flex-wrap: wrap; gap: .75rem; margin-top: 1rem; }
 button { background: transparent; color: var(--white); }
 button:disabled { cursor: not-allowed; opacity: .38; }

@@ -1,9 +1,23 @@
 export const MAX_FILE_BYTES = 50 * 1024 * 1024;
 
-// An unverified browser activity check is not authoritative: it does not recognize the
-// spoken phrase or the requested movement, and it cannot detect replay. Its risk never
+// A browser activity check is not authoritative even when it recognizes the spoken
+// words: recognition happens on the same device that is being questioned, the requested
+// movement is never checked, and a live attacker can still relay the exchange. Only a
+// server verified challenge bound to a signed nonce would change that. Its risk never
 // falls below this floor, so a liveness check alone can never produce `allow`.
 export const LIVENESS_FLOOR_RISK = 35;
+
+// Covers the whole exchange as wall clock time, including the spoken prompts. Measured
+// on Chrome 151, speaking both prompts alone takes 8.7 to 9.7 seconds, and a typical
+// answered exchange lands near 20 seconds once the two replies and the recogniser's
+// end-of-speech detection are included.
+//
+// The minimum is therefore only meaningful on the fallback path, where one prompt is
+// spoken and an instant "complete" click is what it catches. On the recognised path
+// nothing can finish that quickly, so the lower bound never fires. Measuring the user's
+// own response time instead of wall clock would fix that, at the cost of a change to
+// what this term means.
+export const CHALLENGE_WINDOW_SECONDS = { minimum: 5, maximum: 50 };
 
 const MEDIA_FORMATS = {
   "image/jpeg": { extensions: ["jpg", "jpeg"], mimeTypes: ["image/jpeg"] },
@@ -135,8 +149,72 @@ export function scoreUpload(signals, fileSize) {
   return buildDecision(score, reasons, "upload");
 }
 
+// Word lists rather than a fixed list of phrases. A fixed list is a replay corpus: once
+// the response is actually checked, an attacker only has to record every phrase in it.
+// These lists are deliberately disjoint, so the second turn's new word can never collide
+// with a word the first turn already asked for.
+const CHALLENGE_ADJECTIVES = ["amber", "blue", "copper", "crimson", "golden", "green", "quiet", "silver"];
+const CHALLENGE_NOUNS = ["anchor", "canyon", "harbor", "lantern", "meadow", "moon", "pine", "river"];
+const CHALLENGE_NUMBERS = ["three", "four", "five", "six", "seven", "eight", "nine"];
+const CHALLENGE_EXTRA_WORDS = ["garden", "marble", "orange", "paper", "planet", "signal", "thunder", "window"];
+const CHALLENGE_MOVEMENTS = ["turn your head left", "raise your right hand", "blink twice", "look up"];
+const ORDINALS = ["first", "second", "third"];
+const DIGIT_WORDS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"];
+
+function defaultRandomIndex(limit) {
+  return crypto.getRandomValues(new Uint32Array(1))[0] % limit;
+}
+
+// The second turn asks for a word from the first, so a recording made before the first
+// turn was issued cannot answer it. This is what a fixed phrase list cannot do, and it
+// is the only part of this check that resists replay at all. Selective recall is used
+// rather than arithmetic on purpose: a gate should not double as a numeracy test.
+export function createChallenge(randomIndex = defaultRandomIndex) {
+  const pick = (list) => list[randomIndex(list.length)];
+  const words = [pick(CHALLENGE_ADJECTIVES), pick(CHALLENGE_NOUNS), pick(CHALLENGE_NUMBERS)];
+  const recallIndex = randomIndex(words.length);
+  const extraWord = pick(CHALLENGE_EXTRA_WORDS);
+
+  return {
+    firstTurn: {
+      prompt: `Say: ${words.join(" ")}, then ${pick(CHALLENGE_MOVEMENTS)}.`,
+      expectedWords: words,
+    },
+    secondTurn: {
+      prompt: `Now say only the ${ORDINALS[recallIndex]} word again, then say: ${extraWord}.`,
+      expectedWords: [words[recallIndex], extraWord],
+    },
+  };
+}
+
+// Recognisers punctuate and capitalise unpredictably and return "7" as readily as
+// "seven", so the raw transcript is never compared directly.
+export function normalizeSpokenText(text) {
+  return String(text ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .split(" ")
+    .filter(Boolean)
+    .flatMap((token) => (/^\d+$/.test(token) ? [...token].map((digit) => DIGIT_WORDS[Number(digit)]) : [token]));
+}
+
+// Order insensitive presence, not an exact transcript match. A recogniser that inserts
+// a filler word should not fail an honest speaker, but every requested word must appear.
+export function matchesExpectedWords(transcript, expectedWords) {
+  if (!expectedWords?.length) return false;
+  const spoken = new Set(normalizeSpokenText(transcript));
+  return expectedWords.every((word) => {
+    const tokens = normalizeSpokenText(word);
+    return tokens.length > 0 && tokens.every((token) => spoken.has(token));
+  });
+}
+
 export function scoreLiveness({
   userClaimedComplete,
+  recognitionAvailable = false,
+  firstTurnMatched = false,
+  secondTurnMatched = false,
+  recognitionConfidence,
   durationSeconds,
   speechActivityRatio,
   visualMotion,
@@ -145,29 +223,55 @@ export function scoreLiveness({
   if (startupError) return buildDecision(null, [startupError], "liveness", "inconclusive");
 
   // Penalties are additive from the floor and sum to exactly 100, so each failing
-  // signal stays distinguishable instead of saturating at `block`.
+  // signal stays distinguishable instead of saturating at `block`. Recognition splits
+  // the 30 point response term evenly across the two turns rather than adding a new
+  // term, so the budget still totals 100 on both the recognized and fallback paths.
   let score = LIVENESS_FLOOR_RISK;
   const reasons = [
-    "This activity check does not verify the displayed words or movement and cannot rule out replay",
-    `Because the response is unverified, this check never scores below ${LIVENESS_FLOOR_RISK} and cannot produce allow on its own`,
+    recognitionAvailable
+      ? "The spoken words were recognized on this device, but this check does not verify the requested movement and cannot rule out a relayed response"
+      : "This activity check does not verify the displayed words or movement and cannot rule out replay",
+    `This check is not authoritative, so it never scores below ${LIVENESS_FLOOR_RISK} and cannot produce allow on its own`,
   ];
-  if (userClaimedComplete) {
-    reasons.push("The user marked the challenge complete; the response itself was not recognized");
+
+  if (recognitionAvailable) {
+    if (firstTurnMatched) {
+      reasons.push("The first challenge phrase was recognized");
+    } else {
+      score += 15;
+      reasons.push("The first challenge phrase was not recognized");
+    }
+    if (secondTurnMatched) {
+      reasons.push("The recall turn was answered, so a recording made before this challenge was issued would not have passed");
+    } else {
+      score += 15;
+      reasons.push("The recall turn was not answered");
+    }
+    // Recogniser confidence is an uncalibrated vendor number, so it is reported for the
+    // same reason C2PA-like text is: visible evidence that is not allowed to move a score.
+    if (typeof recognitionConfidence === "number") {
+      reasons.push(`The recognizer reported ${recognitionConfidence.toFixed(2)} confidence; this number is uncalibrated and does not change the score`);
+    }
+  } else if (userClaimedComplete) {
+    reasons.push("On-device speech recognition was unavailable, so the spoken response was not checked; the user marked the challenge complete instead");
   } else {
     score += 30;
-    reasons.push("The user did not mark the challenge complete");
+    reasons.push("On-device speech recognition was unavailable and the user did not mark the challenge complete");
   }
-  if (durationSeconds >= 3 && durationSeconds <= 20) {
+
+  if (durationSeconds >= CHALLENGE_WINDOW_SECONDS.minimum && durationSeconds <= CHALLENGE_WINDOW_SECONDS.maximum) {
     reasons.push("The response arrived inside the expected time window");
   } else {
     score += 12;
-    reasons.push("The response was outside the 3 to 20 second time window");
+    reasons.push(`The whole exchange was outside the ${CHALLENGE_WINDOW_SECONDS.minimum} to ${CHALLENGE_WINDOW_SECONDS.maximum} second window`);
   }
+  // Measured only while the prompt is not being spoken, otherwise the app's own voice
+  // carries this signal through the speakers and the check passes on its own output.
   if (speechActivityRatio >= 0.15) {
-    reasons.push("Sustained microphone activity was detected");
+    reasons.push("Sustained microphone activity was detected while the prompt was not being spoken");
   } else {
     score += 12;
-    reasons.push("Sustained microphone activity was not detected");
+    reasons.push("Sustained microphone activity was not detected while the prompt was not being spoken");
   }
   if (visualMotion >= 0.025) {
     reasons.push("Frame-to-frame visual activity was detected");

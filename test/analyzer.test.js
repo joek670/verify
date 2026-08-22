@@ -1,6 +1,17 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { LIVENESS_FLOOR_RISK, combineDecisions, extractSignals, scoreLiveness, scoreUpload, sniffMediaType } from "../public/analyzer.js";
+import {
+  CHALLENGE_WINDOW_SECONDS,
+  LIVENESS_FLOOR_RISK,
+  combineDecisions,
+  createChallenge,
+  extractSignals,
+  matchesExpectedWords,
+  normalizeSpokenText,
+  scoreLiveness,
+  scoreUpload,
+  sniffMediaType,
+} from "../public/analyzer.js";
 
 const encoder = new TextEncoder();
 
@@ -160,4 +171,130 @@ test("combined decision is inconclusive until both checks exist", () => {
   const combined = combineDecisions([{ action: "allow", risk: 10, reasons: ["upload inspected"], source: "upload" }]);
   assert.equal(combined.action, "inconclusive");
   assert.match(combined.reasons.join(" "), /both/i);
+});
+
+const recognized = {
+  recognitionAvailable: true,
+  firstTurnMatched: true,
+  secondTurnMatched: true,
+  durationSeconds: 12,
+  speechActivityRatio: 0.6,
+  visualMotion: 0.1,
+};
+
+test("normalizes recognizer punctuation, casing, and digits", () => {
+  assert.deepEqual(normalizeSpokenText("Blue River, seven."), ["blue", "river", "seven"]);
+  assert.deepEqual(normalizeSpokenText("blue river 7"), ["blue", "river", "seven"]);
+  assert.deepEqual(normalizeSpokenText(""), []);
+  assert.deepEqual(normalizeSpokenText(undefined), []);
+});
+
+test("matches requested words regardless of order or filler", () => {
+  assert.ok(matchesExpectedWords("um, seven blue river okay", ["blue", "river", "seven"]));
+  assert.ok(matchesExpectedWords("blue river 7", ["blue", "river", "seven"]));
+});
+
+test("does not match a transcript missing a requested word", () => {
+  assert.equal(matchesExpectedWords("blue river", ["blue", "river", "seven"]), false);
+  assert.equal(matchesExpectedWords("blue rivers even", ["blue", "river", "seven"]), false);
+  assert.equal(matchesExpectedWords("anything", []), false);
+});
+
+test("builds a recall turn from a word the first turn asked for", () => {
+  const challenge = createChallenge(() => 0);
+  assert.match(challenge.firstTurn.prompt, /^Say: amber anchor three, then /);
+  assert.deepEqual(challenge.firstTurn.expectedWords, ["amber", "anchor", "three"]);
+  assert.equal(challenge.secondTurn.prompt, "Now say only the first word again, then say: garden.");
+  assert.deepEqual(challenge.secondTurn.expectedWords, ["amber", "garden"]);
+});
+
+test("the recall turn always reuses one first-turn word and adds a fresh one", () => {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    const { firstTurn, secondTurn } = createChallenge();
+    const [recalled, fresh] = secondTurn.expectedWords;
+    assert.ok(firstTurn.expectedWords.includes(recalled), "recall word must come from the first turn");
+    assert.ok(!firstTurn.expectedWords.includes(fresh), "the new word must not already be in the first turn");
+  }
+});
+
+test("generated challenges are not drawn from a small fixed corpus", () => {
+  const seen = new Set();
+  for (let attempt = 0; attempt < 200; attempt += 1) seen.add(createChallenge().firstTurn.expectedWords.join(" "));
+  assert.ok(seen.size > 50, `expected many distinct phrases, saw ${seen.size}`);
+});
+
+test("recognizing both turns still cannot produce allow", () => {
+  const decision = scoreLiveness(recognized);
+  assert.equal(decision.risk, LIVENESS_FLOOR_RISK);
+  assert.equal(decision.action, "review");
+  assert.match(decision.reasons.join(" "), /cannot produce allow on its own/i);
+  assert.match(decision.reasons.join(" "), /does not verify the requested movement/i);
+});
+
+test("no combination of checks reaches allow even when the response is recognized", () => {
+  const bestUpload = scoreUpload(extractSignals(Uint8Array.from([0xff, 0xd8, 0xff, 0xe0]), "image/jpeg", "camera.jpg"), 4);
+  assert.equal(bestUpload.action, "allow");
+  assert.equal(combineDecisions([bestUpload, scoreLiveness(recognized)]).action, "review");
+});
+
+test("splits the response penalty evenly across the two turns", () => {
+  const both = scoreLiveness(recognized);
+  const firstOnly = scoreLiveness({ ...recognized, secondTurnMatched: false });
+  const secondOnly = scoreLiveness({ ...recognized, firstTurnMatched: false });
+  const neither = scoreLiveness({ ...recognized, firstTurnMatched: false, secondTurnMatched: false });
+  assert.equal(firstOnly.risk - both.risk, 15);
+  assert.equal(secondOnly.risk - both.risk, 15);
+  assert.equal(neither.risk - both.risk, 30);
+});
+
+test("keeps the penalty budget at exactly 100 on the recognized path", () => {
+  const worst = scoreLiveness({
+    recognitionAvailable: true,
+    firstTurnMatched: false,
+    secondTurnMatched: false,
+    durationSeconds: 2,
+    speechActivityRatio: 0,
+    visualMotion: 0,
+  });
+  assert.equal(worst.risk, 100);
+  assert.equal(worst.action, "block");
+});
+
+test("reports recognizer confidence without letting it change the score", () => {
+  const withoutConfidence = scoreLiveness(recognized);
+  const withConfidence = scoreLiveness({ ...recognized, recognitionConfidence: 0.42 });
+  const lowConfidence = scoreLiveness({ ...recognized, recognitionConfidence: 0.01 });
+  assert.equal(withConfidence.risk, withoutConfidence.risk);
+  assert.equal(lowConfidence.risk, withoutConfidence.risk);
+  assert.match(withConfidence.reasons.join(" "), /0\.42 confidence/);
+  assert.match(withConfidence.reasons.join(" "), /uncalibrated and does not change the score/i);
+});
+
+test("falls back to self-attestation when recognition is unavailable", () => {
+  const claimed = scoreLiveness({ userClaimedComplete: true, durationSeconds: 12, speechActivityRatio: 0.6, visualMotion: 0.1 });
+  const abandoned = scoreLiveness({ userClaimedComplete: false, durationSeconds: 12, speechActivityRatio: 0.6, visualMotion: 0.1 });
+  assert.equal(claimed.risk, LIVENESS_FLOOR_RISK);
+  assert.equal(abandoned.risk - claimed.risk, 30);
+  assert.match(claimed.reasons.join(" "), /speech recognition was unavailable/i);
+});
+
+test("the time window covers the whole two-turn exchange", () => {
+  const inside = scoreLiveness({ ...recognized, durationSeconds: 30 });
+  const tooSlow = scoreLiveness({ ...recognized, durationSeconds: CHALLENGE_WINDOW_SECONDS.maximum + 1 });
+  const tooFast = scoreLiveness({ ...recognized, durationSeconds: CHALLENGE_WINDOW_SECONDS.minimum - 1 });
+  assert.equal(inside.risk, LIVENESS_FLOOR_RISK);
+  assert.equal(tooSlow.risk - inside.risk, 12);
+  assert.equal(tooFast.risk - inside.risk, 12);
+});
+
+test("the window accommodates the time the spoken prompts take", () => {
+  // Speaking both prompts measured 8.7 to 9.7 seconds on Chrome 151, so a recognized
+  // exchange cannot finish much before 12 seconds once the two replies and the
+  // recognizer's end-of-speech detection are included. Neither may be penalized.
+  const promptFloor = scoreLiveness({ ...recognized, durationSeconds: 12 });
+  const typical = scoreLiveness({ ...recognized, durationSeconds: 20 });
+  const hesitant = scoreLiveness({ ...recognized, durationSeconds: 40 });
+  assert.equal(promptFloor.risk, LIVENESS_FLOOR_RISK);
+  assert.equal(typical.risk, LIVENESS_FLOOR_RISK);
+  assert.equal(hesitant.risk, LIVENESS_FLOOR_RISK);
 });

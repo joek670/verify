@@ -45,7 +45,7 @@
           <div>
             <p class="eyebrow">LIVE CHALLENGE</p>
             <h2>Check camera and microphone activity</h2>
-            <p>Generates a random prompt, then checks for sustained audio and frame-to-frame visual activity. It does not recognize the response or prevent replay.</p>
+            <p>Speaks a generated two-turn challenge and recognizes the reply on this device, then checks for sustained audio and frame-to-frame visual activity. It does not verify the requested movement and cannot stop a relayed response.</p>
             <div class="capture">
               <video id="camera-preview" muted playsinline aria-label="Camera preview"></video>
               <div class="challenge">
@@ -57,7 +57,7 @@
             </div>
             <div class="actions">
               <button id="start-live" class="primary" type="button">Start live test</button>
-              <button id="complete-live" type="button" disabled>Challenge complete</button>
+              <button id="complete-live" type="button" hidden disabled>Mark challenge complete</button>
               <button id="stop-live" type="button" disabled>Cancel</button>
             </div>
             <p class="microcopy">Camera and microphone data stay in this browser tab and are not recorded.</p>
@@ -81,6 +81,10 @@
           <strong>No decision yet</strong>
           <p>Complete both tests to calculate a final decision.</p>
         </div>
+        <p class="ceiling-note">
+          <strong>Why this never reaches Allow.</strong>
+          The spoken words are recognized on the same device being questioned, and the requested movement is never checked, so the live result keeps a floor of 35 however well the challenge goes. Lifting that floor would take a server-issued challenge bound to a signed nonce and scored outside this browser. Until then the best honest outcome is Review.
+        </p>
       </section>
     </main>
 

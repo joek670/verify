@@ -111,6 +111,8 @@ input[type="file"] {
 .file-picker, .primary { background: var(--mint); border-color: var(--mint); color: var(--ink); }
 .file-picker:focus-within, button:focus-visible { outline: 3px solid var(--amber); outline-offset: 3px; }
 .microcopy { color: #bdc8c2; font-size: .8rem; }
+.ceiling-note { border-left: 5px solid var(--line); color: #bdc8c2; font-size: .85rem; margin-top: 1.5rem; max-width: 60ch; padding-left: 1.25rem; }
+.ceiling-note strong { color: var(--white); display: block; }
 
 .capture { display: grid; gap: 1rem; grid-template-columns: 1fr 1fr; margin-top: 2rem; }
 

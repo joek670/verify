@@ -55,6 +55,7 @@ let recognitionAvailable = false;
 let activeRecognition;
 let promptSpeaking = false;
 let spokenPromptMs = 0;
+let challengeStarted = false;
 
 uploadInput.addEventListener("change", async () => {
   const file = uploadInput.files?.[0];
@@ -105,7 +106,15 @@ startButton.addEventListener("click", async () => {
     // Measurement and the clock start inside runChallenge, after the recogniser is
     // ready. Installing an on-device language pack can take a while, and that time is
     // neither the user's response nor a period they were expected to be speaking.
-    runChallenge(currentSession);
+    // An unhandled rejection here would leave the panel stuck on "Preparing the
+    // challenge" with no decision and no way forward except Cancel.
+    runChallenge(currentSession).catch(() => {
+      if (currentSession !== sessionId) return;
+      liveDecision = scoreLiveness({ startupError: "The live activity check could not run the challenge" });
+      renderDecision(liveResult, liveDecision);
+      renderCombined();
+      stopLive();
+    });
   } catch (error) {
     acquiredStream?.getTracks().forEach((track) => track.stop());
     if (currentSession !== sessionId) return;
@@ -172,6 +181,17 @@ function beginMeasurements() {
 
 function finishLive(completed, turnResults = []) {
   if (!stream) return;
+  // Cancelling while the recogniser is still being prepared ends a check that never
+  // began: no clock was started and no samples were taken. Scoring it would report a
+  // response time measured from a previous session and silence that nobody was asked
+  // to break. A check that could not run is inconclusive, not a block.
+  if (!challengeStarted) {
+    liveDecision = scoreLiveness({ startupError: "The live activity check was cancelled before the challenge began" });
+    renderDecision(liveResult, liveDecision);
+    renderCombined();
+    stopLive();
+    return;
+  }
   // Time the user actually held the floor. The app's own spoken prompts are excluded,
   // otherwise the lower bound would sit below the time the prompts alone take and could
   // never catch a near instant answer.
@@ -213,6 +233,7 @@ function stopLive() {
   animationFrame = undefined;
   activeRecognition = undefined;
   promptSpeaking = false;
+  challengeStarted = false;
   video.srcObject = null;
   meter.value = 0;
   startButton.disabled = false;
@@ -317,6 +338,7 @@ async function runChallenge(currentSession) {
 
   startedAt = performance.now();
   spokenPromptMs = 0;
+  challengeStarted = true;
   audioSampleCount = 0;
   activeAudioSampleCount = 0;
   motionTotal = 0;

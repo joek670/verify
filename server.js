@@ -60,7 +60,14 @@ export const server = createServer((request, response) => {
       "Content-Length": stat.size,
       "Content-Type": types[extname(filePath)] ?? "application/octet-stream",
     });
-    createReadStream(filePath).pipe(response);
+    // A ReadStream that errors with no listener throws an uncaught exception and takes
+    // the process down. statSync passing does not rule that out: the file can be
+    // removed, locked, or dehydrated to a cloud placeholder between the stat and the
+    // open. Headers are already sent here, so the response can only be destroyed, not
+    // turned into a 500.
+    const body = createReadStream(filePath);
+    body.on("error", () => response.destroy());
+    body.pipe(response);
   } catch {
     response.writeHead(404, TEXT).end("Not found");
   }

@@ -210,25 +210,72 @@ diversity floor is a constraint rather than a term to be traded off.
 The loop is only as honest as its measurement. Requirements before any controller reads
 an error number:
 
-1. **Held-out routing sets.** The benchmark that drives sampling and the benchmark that
+1. **A ceiling control, run first.** An oracle arm that reads the hidden truth, and a
+   random arm. If the oracle does not clearly beat random, the environment carries no
+   exploitable signal and no controller can help — every comparison above that floor is
+   then measuring noise. This gate comes before any ladder of rungs, and a setting where
+   the oracle *cannot* be run is a setting where the gate was skipped, not passed. See
+   the note on `closed-loop-slm` below: this is the single most expensive lesson already
+   paid for in this project.
+2. **Held-out routing sets.** The benchmark that drives sampling and the benchmark that
    reports progress cannot be the same set. The controller trains against the first; the
    second is read at most at milestones and never fed back.
-2. **Ground truth precedes the run.** Every eval item carries its correct answer and its
+3. **Ground truth precedes the run.** Every eval item carries its correct answer and its
    failure-class rubric before the model sees it. A failure class assigned after reading
    the model's output is a story, not a measurement.
-3. **An honest denominator.** Items the model refused, truncated, or could not parse are
+4. **An honest denominator.** Items the model refused, truncated, or could not parse are
    counted, not dropped. A silently shrinking denominator inflates every rate above it.
-4. **Uncalibrated scores stay uncalibrated.** A model's own confidence is a reported field
+5. **Uncalibrated scores stay uncalibrated.** A model's own confidence is a reported field
    and never an input to the mixture, for the same reason a vendor confidence number never
    moves a risk score in this repository: an uncalibrated number that steers a decision
    launders itself into evidence.
-5. **What the series does not show.** Every controller report states which skills were
+6. **What the series does not show.** Every controller report states which skills were
    never exercised in that cycle and which signals fired in every single run. A term that
    never varies is a constant, not a signal.
 
-Points 2 through 5 are the same discipline `summarize-trials.js` applies to Verify's trial
+Points 3 through 6 are the same discipline `summarize-trials.js` applies to Verify's trial
 series, transplanted. The failure they prevent is identical: a pile of outcomes that looks
 like evidence because nobody wrote down what it could not distinguish.
+
+## What has already been measured
+
+`github.com/joek670/closed-loop-slm` is a running experimental programme testing this
+design's core claims, in a simulator (V0) and against a real trained transformer (V1).
+Several of the assumptions written above are **already contradicted by its V1 results**,
+and this note is the speculative document of the pair. Read that repo's `RESULTS.md` and
+`v0_v1_gap.md` before building anything here.
+
+What it found, on a 12-skill labeled corpus with a real transformer, 5 paired seeds:
+
+- **No selection policy beat uniform random sampling.** `random` was the top arm.
+  `quality` was the bottom arm. That ordering replicated across two model classes.
+- **Sampling toward weakness redistributes mastery; it does not add any.** The `headroom`
+  policy — the direct implementation of "sample the high-error skill harder" — is the one
+  arm significantly *worse* than random. It does exactly what it is built to do: lifts the
+  worst skill by +0.087 and compresses the spread. It loses 0.198 at the top to buy that.
+  Rescoring on worst-skill mastery changes the ranking, not the conclusion.
+- **A learned gain predictor lost to a three-line hand-coded prior** in every regime,
+  and about half the deficit survived setting exploration cost to zero.
+- **A bandit helps only where harm concentrates in the arm structure.** Evenly-spread
+  poison makes every arm look identical: the controller learns nothing and still pays
+  exploration. Arms must match the dimension the world actually moves in — a source-arm
+  bandit captured none of a drift that lived in the skill dimension.
+- **Quality filtering went below random under a decoy stream**, because decoys are defined
+  by high observed quality. The same filter, the same corpus statistics, opposite sign.
+- **The simulator embodied the hypothesis and so could not test it.** Every V0 rung shipped;
+  no V1 rung did. V0's worst arm beat random by more than the entire V1 spread.
+
+The V1 ladder was also run without its ceiling control, because the oracle is not runnable
+on a real backend. That is why the honest form of its negative is narrow: *frontier
+selection does not work on V1 as configured, and V1 has no ceiling measurement, so it is
+not established that anything would.*
+
+**What that leaves of this note.** The parts still standing are the ones that programme has
+not tested: the failure taxonomy as a routing key (its skill axis has no failure classes),
+verifiability as an encoder head, and the honesty contract above. The parts to treat as
+refuted until re-measured are error-proportional sampling as a free win, MERF as a
+per-skill quantity that can be estimated at achievable resolution, and the assumption that
+a learned sampler beats a good prior.
 
 ## Relation to existing work
 

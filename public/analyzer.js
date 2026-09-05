@@ -24,6 +24,12 @@ export const CHALLENGE_WINDOW_SECONDS = { minimum: 2, maximum: 30 };
 export const SPEECH_ACTIVITY_FLOOR = 0.15;
 export const VISUAL_MOTION_FLOOR = 0.025;
 
+// Said of a signal whose measurement is missing rather than failing. Comparing an
+// absent number against a threshold yields `false`, which would otherwise report "not
+// detected" about a measurement nobody took. An unmeasured signal keeps its penalty —
+// distinct from a failure, never softer than one — but says which it is.
+const UNMEASURED = "could not be judged and is scored as if it had failed";
+
 const MEDIA_FORMATS = {
   "image/jpeg": { extensions: ["jpg", "jpeg"], mimeTypes: ["image/jpeg"] },
   "image/png": { extensions: ["png"], mimeTypes: ["image/png"] },
@@ -267,23 +273,31 @@ export function scoreLiveness({
   // Both branches print the measured time. The upper bound is an estimate, and an
   // estimate whose reason never shows the number it was compared against cannot be
   // corrected by running the check.
-  const measured = Number.isFinite(responseSeconds) ? `${responseSeconds.toFixed(1)} seconds` : "an unmeasured length of time";
   const bounds = `the ${CHALLENGE_WINDOW_SECONDS.minimum} to ${CHALLENGE_WINDOW_SECONDS.maximum} second window, not counting the time the prompt was being spoken`;
-  if (responseSeconds >= CHALLENGE_WINDOW_SECONDS.minimum && responseSeconds <= CHALLENGE_WINDOW_SECONDS.maximum) {
-    reasons.push(`The response took ${measured}, inside ${bounds}`);
+  if (!Number.isFinite(responseSeconds)) {
+    score += 12;
+    reasons.push(`The response time was not measured against ${bounds}, so this signal ${UNMEASURED}`);
+  } else if (responseSeconds >= CHALLENGE_WINDOW_SECONDS.minimum && responseSeconds <= CHALLENGE_WINDOW_SECONDS.maximum) {
+    reasons.push(`The response took ${responseSeconds.toFixed(1)} seconds, inside ${bounds}`);
   } else {
     score += 12;
-    reasons.push(`The response took ${measured}, outside ${bounds}`);
+    reasons.push(`The response took ${responseSeconds.toFixed(1)} seconds, outside ${bounds}`);
   }
   // Measured only while the prompt is not being spoken, otherwise the app's own voice
   // carries this signal through the speakers and the check passes on its own output.
-  if (speechActivityRatio >= SPEECH_ACTIVITY_FLOOR) {
+  if (!Number.isFinite(speechActivityRatio)) {
+    score += 12;
+    reasons.push(`Microphone activity while the prompt was not being spoken was not measured, so this signal ${UNMEASURED}`);
+  } else if (speechActivityRatio >= SPEECH_ACTIVITY_FLOOR) {
     reasons.push("Sustained microphone activity was detected while the prompt was not being spoken");
   } else {
     score += 12;
     reasons.push("Sustained microphone activity was not detected while the prompt was not being spoken");
   }
-  if (visualMotion >= VISUAL_MOTION_FLOOR) {
+  if (!Number.isFinite(visualMotion)) {
+    score += 11;
+    reasons.push(`Frame-to-frame visual activity was not measured, so this signal ${UNMEASURED}`);
+  } else if (visualMotion >= VISUAL_MOTION_FLOOR) {
     reasons.push("Frame-to-frame visual activity was detected");
   } else {
     score += 11;

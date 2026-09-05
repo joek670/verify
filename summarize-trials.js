@@ -33,25 +33,30 @@ function pluck(records, key) {
 }
 
 export function summarize(records) {
-  const measured = records.filter(ran);
+  // A record carrying none of the four actions holds no decision, so it is not an
+  // attempt and must stay out of the denominator. Counting it as one that could not run
+  // would put a stray line in the same column as a challenge the user cancelled, and it
+  // would leave a label row whose cells sum to fewer trials than the row represents.
+  const trials = records.filter(({ action }) => ACTIONS.includes(action));
+  const measured = trials.filter(ran);
   const counts = new Map();
-  for (const { action, label } of records) {
+  for (const { action, label } of trials) {
     const key = `${label ?? "unlabeled"}`;
     if (!counts.has(key)) counts.set(key, Object.fromEntries(ACTIONS.map((name) => [name, 0])));
-    const row = counts.get(key);
-    if (action in row) row[action] += 1;
+    counts.get(key)[action] += 1;
   }
 
   return {
     counts,
-    couldNotRun: records.length - measured.length,
+    couldNotRun: trials.length - measured.length,
+    discarded: records.length - trials.length,
     measured: measured.length,
     peakAudioLevel: pluck(measured, "peakAudioLevel"),
     responseSeconds: pluck(measured, "responseSeconds"),
     // The threshold each run was actually judged against, read from the runs rather than
     // from this file's imports, so a log written by an older build still reads correctly.
     speechLevelThresholds: [...new Set(measured.map((record) => record.speechLevelThreshold).filter(Number.isFinite))],
-    total: records.length,
+    total: trials.length,
     turnsMatched: {
       first: measured.filter((record) => record.firstTurnMatched).length,
       second: measured.filter((record) => record.secondTurnMatched).length,
@@ -93,9 +98,13 @@ function caveats(summary) {
 export function format(summary) {
   const lines = [
     `${summary.total} trial${summary.total === 1 ? "" : "s"}: ${summary.measured} measured, ${summary.couldNotRun} could not run`,
-    "",
-    "Label versus decision",
   ];
+  // Said next to the count it was excluded from, because a discarded line is the one
+  // kind of log entry that would otherwise inflate the denominator silently.
+  if (summary.discarded) {
+    lines.push(`${summary.discarded} record${summary.discarded === 1 ? " carries" : "s carry"} no decision and ${summary.discarded === 1 ? "is" : "are"} not counted as a trial.`);
+  }
+  lines.push("", "Label versus decision");
 
   const width = Math.max(...[...summary.counts.keys(), "label"].map((key) => key.length));
   lines.push(`  ${"label".padEnd(width)}  ${ACTIONS.map((action) => action.padStart(14)).join("")}`);

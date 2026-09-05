@@ -63,3 +63,19 @@ test("ignores lines that are not JSON objects rather than failing the run", () =
   assert.equal(records.length, 1);
   assert.equal(skipped, 3);
 });
+
+test("a record carrying no decision is not counted as a trial", () => {
+  // The real log picked up a hand-written probe line. It has a label but no action, so
+  // every column of its row read zero while the header counted it as an attempt that
+  // could not run — inflating the denominator the series exists to keep honest.
+  const probe = { label: "probe" };
+  const summary = summarize([genuine, cancelled, probe]);
+  assert.equal(summary.total, 2);
+  assert.equal(summary.couldNotRun, 1, "the cancelled attempt still counts; the probe does not");
+  assert.equal(summary.discarded, 1);
+  assert.ok(!summary.counts.has("probe"), "a record with no decision earns no label row");
+
+  const rows = [...summary.counts.values()].reduce((sum, row) => sum + Object.values(row).reduce((a, b) => a + b, 0), 0);
+  assert.equal(rows, summary.total, "the label table accounts for every trial");
+  assert.match(format(summary), /1 record carries no decision and is not counted as a trial\./);
+});

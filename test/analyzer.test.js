@@ -326,3 +326,23 @@ test("two turns defeat a pre-recorded clip but not a live relay", () => {
   assert.deepEqual(liveRelay, genuine, "a live or synthetic reply is not");
   assert.equal(genuine.action, "review", "which is why the floor stays and allow is unreachable");
 });
+
+test("an unmeasured signal is scored as failing, and says so instead of claiming a verdict", () => {
+  // Comparing a missing number against a threshold yields `false`, which reported "not
+  // detected" about a measurement nobody took and asserted a response was "outside" a
+  // window it was never compared with. The penalty is right — an absent signal must
+  // never score better than a failing one — but the reason has to say which it is.
+  const unmeasured = scoreLiveness({
+    recognitionAvailable: true,
+    firstTurnMatched: true,
+    secondTurnMatched: true,
+  });
+  const failing = scoreLiveness({ ...recognized, responseSeconds: 0.4, speechActivityRatio: 0, visualMotion: 0 });
+  assert.equal(unmeasured.risk, failing.risk, "an unmeasured signal is never softer than a failed one");
+  const text = unmeasured.reasons.join(" ");
+  assert.match(text, /The response time was not measured/);
+  assert.match(text, /Microphone activity while the prompt was not being spoken was not measured/);
+  assert.match(text, /Frame-to-frame visual activity was not measured/);
+  assert.doesNotMatch(text, /outside the 2 to 30 second window/, "an absent time was never compared with the window");
+  assert.doesNotMatch(text, /was not detected/, "nothing was measured, so nothing can be said not to have been detected");
+});

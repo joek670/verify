@@ -85,6 +85,15 @@ fallback paths, so each failing signal stays distinguishable instead of saturati
 `block`. Adding a signal means taking points from an existing term, not appending a new
 one.
 
+A signal whose measurement is missing keeps its penalty and says that it was unmeasured,
+rather than reporting the verdict a missing number happens to compare to. An absent
+measurement must never score better than a failing one, and it must never be described as
+a detection that did not happen.
+
+A record in a trial log that carries no `action` is not a trial. It is reported and
+excluded, because counting it would inflate the denominator the log exists to keep honest
+and would leave a label row that accounts for fewer attempts than it displays.
+
 Nothing leaves the browser by default. Speech recognition is on-device only; the
 networked recognizer is refused rather than used as a fallback. Trial logging is the one
 exception and is opt-in: with `VERIFY_LOG` set, the labeled decision and its measurements

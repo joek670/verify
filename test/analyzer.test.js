@@ -7,6 +7,7 @@ import {
   createChallenge,
   extractSignals,
   matchesExpectedWords,
+  measureResponseSeconds,
   normalizeSpokenText,
   scoreLiveness,
   scoreUpload,
@@ -345,4 +346,23 @@ test("an unmeasured signal is scored as failing, and says so instead of claiming
   assert.match(text, /Frame-to-frame visual activity was not measured/);
   assert.doesNotMatch(text, /outside the 2 to 30 second window/, "an absent time was never compared with the window");
   assert.doesNotMatch(text, /was not detected/, "nothing was measured, so nothing can be said not to have been detected");
+});
+
+test("the response time excludes the silence the recognizer waited through", () => {
+  // A turn whose answer is incomplete ends a fixed gap after the last thing it heard.
+  // That gap is the app waiting, not the user holding the floor, and it lands on exactly
+  // the runs that failed to match — so leaving it in would bias the one measurement the
+  // window's upper bound has to be corrected against, upward, and only for failures.
+  const twoUnmatchedTurns = measureResponseSeconds({ elapsedMs: 22000, spokenPromptMs: 9000, answerGapMs: 4000 });
+  const twoMatchedTurns = measureResponseSeconds({ elapsedMs: 18000, spokenPromptMs: 9000, answerGapMs: 0 });
+  assert.equal(twoUnmatchedTurns, 9);
+  assert.equal(twoMatchedTurns, 9, "a matched turn ends on the answer, so it has no gap to subtract");
+
+  // The recorded genuine run measured 8.31s with both turns unmatched. Roughly four of
+  // those seconds were the two gap timers, so nearly half of it was never the user.
+  assert.equal(measureResponseSeconds({ elapsedMs: 8310, answerGapMs: 4000 }), 4.31);
+});
+
+test("the response time never goes negative", () => {
+  assert.equal(measureResponseSeconds({ elapsedMs: 1000, spokenPromptMs: 9000, answerGapMs: 4000 }), 0);
 });

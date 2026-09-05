@@ -47,10 +47,18 @@ recognizers punctuate unpredictably and return "7" as readily as "seven".
 fallback path the spoken response is not checked, **self-attestation** (the user marking
 the challenge complete) returns in its place, and the reasons say so.
 
-**Response time** — `responseSeconds`: the time the user held the floor, excluding the
-time the app's prompts were being spoken. Not wall clock. Reported in the reasons on both
-sides of the window, because the window's upper bound is an estimate and an estimate that
-never prints the number it compared cannot be corrected by running the check.
+**Response time** — `responseSeconds`: the time the user held the floor. Not wall clock.
+Two things are taken off the clock, both of them the app's own time rather than the
+user's: the time its prompts were being spoken, and the **answer gap** — the silence its
+recognizer waited through after the speaker had already stopped. Reported in the reasons
+on both sides of the window, because the window's upper bound is an estimate and an
+estimate that never prints the number it compared cannot be corrected by running the
+check.
+
+**Answer gap** — a turn whose answer is still incomplete ends a fixed `ANSWER_GAP_MS`
+after the last thing it heard. That gap falls only on turns that failed to match, so
+counting it would bias the response time upward for exactly the runs that failed, in the
+one measurement the window's upper bound has to be corrected against.
 
 **Trial** — one recorded attempt: the label, the decision, and the measurements the score
 was computed from. Every attempt is recorded, including one that could not run, so a

@@ -4,6 +4,7 @@ import {
   createChallenge,
   extractSignals,
   matchesExpectedWords,
+  measureResponseSeconds,
   scoreLiveness,
   scoreUpload,
 } from "./analyzer.js";
@@ -69,6 +70,11 @@ let recognitionAvailable = false;
 let activeRecognition;
 let promptSpeaking = false;
 let spokenPromptMs = 0;
+// Silence the recogniser waited through after the speaker had already stopped. A turn
+// whose answer is incomplete ends `ANSWER_GAP_MS` after the last thing it heard, and
+// that gap is the app waiting, not the user holding the floor. Excluded for the same
+// reason the spoken prompts are.
+let answerGapMs = 0;
 let challengeStarted = false;
 
 uploadInput.addEventListener("change", async () => {
@@ -259,10 +265,11 @@ function finishLive(completed, turnResults = []) {
     publishLiveDecision(scoreLiveness({ startupError: "The live activity check was cancelled before the challenge began" }));
     return;
   }
-  // Time the user actually held the floor. The app's own spoken prompts are excluded,
-  // otherwise the lower bound would sit below the time the prompts alone take and could
-  // never catch a near instant answer.
-  const responseSeconds = Math.max(0, performance.now() - startedAt - spokenPromptMs) / 1000;
+  const responseSeconds = measureResponseSeconds({
+    answerGapMs,
+    elapsedMs: performance.now() - startedAt,
+    spokenPromptMs,
+  });
   const speechActivityRatio = audioSampleCount ? activeAudioSampleCount / audioSampleCount : 0;
   const visualMotion = motionSampleCount ? motionTotal / motionSampleCount : 0;
   // The lowest confidence of the two turns is the conservative one to report. It is
@@ -298,6 +305,11 @@ function finishLive(completed, turnResults = []) {
     peakAudioLevel: Number(peakAudioLevel.toFixed(3)),
     meanAudioLevel: Number((audioSampleCount ? audioLevelTotal / audioSampleCount : 0).toFixed(3)),
     speechLevelThreshold: SPEECH_LEVEL,
+    // The two corrections applied to the wall clock before it became `responseSeconds`.
+    // The window's upper bound is judged against that number, so a series cannot correct
+    // the bound without being able to see what was taken off the clock to produce it.
+    spokenPromptSeconds: Number((spokenPromptMs / 1000).toFixed(2)),
+    answerGapSeconds: Number((answerGapMs / 1000).toFixed(2)),
     motionSampleCount,
     // An unmatched turn can mean the words were wrong or that nothing was heard at all,
     // and the score cannot tell those apart. The transcript can.
@@ -389,6 +401,7 @@ function recognizeTurn(expectedWords) {
     let settled = false;
     let capTimer;
     let gapTimer;
+    let lastSegmentAt;
     const settle = (value) => {
       if (settled) return;
       settled = true;
@@ -396,8 +409,15 @@ function recognizeTurn(expectedWords) {
       clearTimeout(gapTimer);
       resolve(value);
     };
-    // Everything heard so far, however many segments it arrived in.
-    const finish = () => settle({ confidence, text: segments.join(" ") });
+    // Everything heard so far, however many segments it arrived in, and how long the
+    // turn went on after the last of it. A turn that heard nothing reports no trailing
+    // silence: the user held the floor for all of it and said nothing, which is a real
+    // measurement rather than the app waiting.
+    const finish = () => settle({
+      confidence,
+      text: segments.join(" "),
+      trailingSilenceMs: lastSegmentAt === undefined ? 0 : Math.max(0, performance.now() - lastSegmentAt),
+    });
 
     capTimer = setTimeout(() => {
       recognition.abort();
@@ -409,6 +429,7 @@ function recognizeTurn(expectedWords) {
         const alternative = event.results[index].isFinal ? event.results[index][0] : undefined;
         if (!alternative) continue;
         segments.push(alternative.transcript);
+        lastSegmentAt = performance.now();
         // The lowest of the segments, for the same reason the lowest of the two turns is
         // reported: it is the conservative one, and it never moves the score either way.
         if (typeof alternative.confidence === "number") {
@@ -457,6 +478,7 @@ async function runChallenge(currentSession) {
 
   startedAt = performance.now();
   spokenPromptMs = 0;
+  answerGapMs = 0;
   challengeStarted = true;
   audioSampleCount = 0;
   activeAudioSampleCount = 0;
@@ -483,6 +505,7 @@ async function runChallenge(currentSession) {
     if (currentSession !== sessionId) return;
     const heard = await recognizeTurn(turn.expectedWords);
     if (currentSession !== sessionId) return;
+    answerGapMs += heard.trailingSilenceMs;
     turnResults.push({
       confidence: heard.confidence,
       matched: matchesExpectedWords(heard.text, turn.expectedWords),

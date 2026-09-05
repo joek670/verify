@@ -18,6 +18,18 @@ export const LIVENESS_FLOOR_RISK = 35;
 // the recogniser's end-of-speech latency is not, and it is inside this measurement.
 export const CHALLENGE_WINDOW_SECONDS = { minimum: 2, maximum: 30 };
 
+// The time the user held the floor, which is what `CHALLENGE_WINDOW_SECONDS` bounds —
+// not the wall clock of the exchange. Two things are taken off the clock, and both are
+// the app's own time rather than the user's: the seconds its prompts were being spoken,
+// and the silence its recogniser waited through after the speaker had already stopped.
+// A turn whose answer is incomplete ends a fixed gap after the last thing it heard, so
+// leaving that in would add the same two seconds to every unmatched turn — inflating the
+// one measurement the window's upper bound has to be corrected against, and only for the
+// runs that failed.
+export function measureResponseSeconds({ elapsedMs, spokenPromptMs = 0, answerGapMs = 0 }) {
+  return Math.max(0, elapsedMs - spokenPromptMs - answerGapMs) / 1000;
+}
+
 // Fraction of samples that must carry speech, and mean frame-to-frame pixel change that
 // counts as movement. Both are guesses of the same kind as the window's upper bound, and
 // both are named rather than inlined so a trial series can be summarised against them.

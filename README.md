@@ -56,7 +56,7 @@ A relayed or synthetic trial is expected to produce the opposite result: `test/a
 
 ### The response-time window
 
-`CHALLENGE_WINDOW_SECONDS` is 2 to 30 seconds of held floor, excluding the time the prompts are being spoken. The lower bound is grounded — speaking both prompts measured 8.7 to 9.7 seconds on Chrome 151 — but **the upper bound is an estimate, and no measured run has been recorded against it yet.** Every decision now prints the time it measured, so a run corrects it. Move the constant when there is a series to move it against, not before.
+`CHALLENGE_WINDOW_SECONDS` is 2 to 30 seconds of held floor, excluding both the time the prompts are being spoken and the silence the recognizer waits through after the speaker has stopped. The lower bound is grounded — speaking both prompts measured 8.7 to 9.7 seconds on Chrome 151 — but **the upper bound is an estimate, and no measured run has been recorded against it yet.** Every decision now prints the time it measured, so a run corrects it. Move the constant when there is a series to move it against, not before.
 
 ## Signals
 
@@ -65,7 +65,7 @@ A relayed or synthetic trial is expected to produce the opposite result: `test/a
 - Presence of C2PA or Content Credentials-like text, reported without changing risk
 - Words of a generated challenge phrase, recognized on the device
 - A second turn that asks for one word from the first, which a recording made before the challenge was issued cannot answer
-- Time the user held the floor across the two turns, excluding the time the prompts were being spoken
+- Time the user held the floor across the two turns, excluding the time the prompts were being spoken and the silence the recognizer waited through afterwards
 - Sustained microphone activity while the spoken prompt is silent
 - Frame-to-frame pixel activity during the response
 

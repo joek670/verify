@@ -250,14 +250,23 @@ the write-up should say so rather than claiming selection or mixture optimizatio
    dominates training cost? An answer needs the per-cycle eval budget measured, not assumed.
 2. **Skill vector supervision.** Where do labels for the encoder heads come from — a
    larger model's judgments, benchmark-adjacent classifiers, or weak heuristics? Each
-   choice imports a different bias into every downstream decision.
+   choice imports a different bias into every downstream decision. *(Answered for the
+   embodied case in `embodied-skill-loop.md`: a latent skill token supervised by the
+   demonstrations themselves. The text case is still open.)*
 3. **Failure-class attribution.** Assigning a wrong answer to knowledge vs. reasoning vs.
    execution is itself a judgment. Is it rubric-based, adjudicated by a stronger model, or
    derived from where a chain of steps first diverges? The last is the only one that is
-   checkable.
+   checkable. *(Embodied answer in `embodied-skill-loop.md`: the first step where the
+   world model's prediction and the rollout diverge.)*
 4. **Bandit vs. PID.** A bandit assumes arms with stationary-ish payoffs and handles
    exploration; a PID controller tracks a target error and handles drift. The two suit
    different regimes and the choice has not been made.
 5. **Interaction between skills.** Math data plausibly reduces physics error. If arms are
    not independent, per-arm MERF is a biased estimate, and the cross-effects need to be
    measured before the controller is trusted to allocate.
+
+## See also
+
+- `embodied-skill-loop.md` — the same loop applied to continuous control, using a JEPA
+  world model and an in-context policy. It answers open questions 2 and 3 for the embodied
+  case and turns question 1 into a three-rate update schedule.

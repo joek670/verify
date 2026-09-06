@@ -50,3 +50,37 @@ The cost of this decision is that the feature can never make the demo say yes. T
 intended. The value of this artifact is the explanation of why these gates are
 unreliable, and a gate that starts claiming reliability it cannot support would destroy
 the thing worth keeping.
+
+## Addendum, 2026-09-05: the floor has never been the operative constraint
+
+The decision above is unchanged. This records something the decision assumed and no run
+has ever shown.
+
+The floor is structurally guaranteed: `scoreLiveness` starts at `LIVENESS_FLOOR_RISK` and
+only adds, so risk is never below 35 and `allow` is unreachable whatever the calibration.
+That part needs no evidence.
+
+What has no evidence is the picture the floor implies — a well-answered challenge landing
+*at* 35, held there by a deliberate decision about authority. In every trial recorded so
+far, two of the five liveness signals never fired:
+
+| Signal | Threshold | Measured |
+| --- | --- | --- |
+| Peak audio level vs `SPEECH_LEVEL` | 0.08 | 0.071 (n=1) |
+| Mean frame delta vs `VISUAL_MOTION_FLOOR` | 0.025 | 0.0017–0.0018 (n=2) |
+
+If those thresholds are wrong rather than merely unmet, every run carries a permanent
++23, the lowest reachable score is 58 rather than 35, and the constraint that actually
+keeps this demo away from `allow` is a calibration error rather than the reasoning in this
+ADR. The conclusion would be right for a reason the document does not give.
+
+Two cautions against reading too much into that. The sample is one and two runs, from a
+build predating the multi-word recognition fix, so it is a hint and not a finding. And
+even if both thresholds are wrong, the decision here still holds on its own terms —
+authority, not calibration, is why the floor exists, and fixing the thresholds would
+expose the floor rather than remove it.
+
+The honest statement today is therefore narrower than the one above: the floor is real by
+construction, and it has never been observed doing the work this ADR credits it with,
+because something else binds first. A trial series against the current build resolves it.
+Until then, treat "a good run scores 35" as a claim about the code, not an observation.

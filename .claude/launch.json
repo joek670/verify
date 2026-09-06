@@ -1,0 +1,18 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "start",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "start"
+      ],
+      "env": {
+        "VERIFY_LOG": "trials.jsonl"
+      },
+      "port": 4173,
+      "url": "http://127.0.0.1:4173"
+    }
+  ]
+}

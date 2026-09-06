@@ -20,6 +20,14 @@ review, 70–100 block.
 **Risk** — an integer 0–100. It is an uncalibrated rule score, never a probability that
 media is AI-generated. Say "heuristic score", not "confidence" or "likelihood".
 
+More precisely, it is a **sum of fixed penalties**, not a graded measurement. Every term
+is a threshold test that either fired or did not, so the magnitude of a measurement never
+reaches the score — only which side of its threshold it fell on. A response of 2.0 seconds
+and one of 29.9 seconds both score 35; a speech ratio of 0.1499 and one of 0.0 both score
+the same. The total therefore encodes *which* checks failed, not *how badly* anything did,
+and two runs with the same total may have failed different checks. It must never be
+averaged across a series, and the UI says so next to every number it prints.
+
 **Inconclusive** — a check that could not run: an unsupported or oversized file, denied
 camera permission. Distinct from `block`, and never a softer form of it. An inconclusive
 check never erases a `block` from the other check, and inconclusive is not allowed.

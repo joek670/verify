@@ -69,6 +69,12 @@ A relayed or synthetic trial is expected to produce the opposite result: `test/a
 - Sustained microphone activity while the spoken prompt is silent
 - Frame-to-frame pixel activity during the response
 
+### What the number is
+
+The risk score is a sum of fixed penalties, not a graded measurement. Each signal above is a threshold test that either fired or did not, and the penalty for failing it is a constant — so how far a measurement sat from its threshold never reaches the score. A 2.0 second response and a 29.9 second one both score 35. A speech ratio of 0.1499 and one of 0.0 both score the same.
+
+The weights are chosen so the terms sum to exactly 100 and stay distinguishable, which means the total tells you *which* checks failed rather than *how badly* anything did. Two runs with the same total may have failed different checks. Do not average it across a series; `npm run trials` lists the distinct values and declines to reduce them.
+
 The demo does **not** cryptographically validate a C2PA signature, identify cloned voices, verify the requested movement, resist a relayed or live-coached response, recognize faces, or store evidence. Recognizer confidence is reported but never changes the score, because it is an uncalibrated vendor number. The overall score is an uncalibrated rule score, not the probability that media is AI-generated.
 
 Speech recognition runs only through the on-device Web Speech API (`processLocally`). Where that is unavailable — currently Firefox and Safari, and any browser without an installed language pack — the challenge falls back to self-attestation, says so in its reasons, and the phrase is not checked. The older networked recognizer is deliberately never used, because it would send microphone audio to a vendor server.

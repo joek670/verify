@@ -79,3 +79,17 @@ test("a record carrying no decision is not counted as a trial", () => {
   assert.equal(rows, summary.total, "the label table accounts for every trial");
   assert.match(format(summary), /1 record carries no decision and is not counted as a trial\./);
 });
+
+test("lists the risk values and refuses to treat them as a scale", () => {
+  // Every term in the risk number is a threshold test that fired or did not, so the
+  // total says which checks failed, not how badly anything scored. Averaging a column
+  // of them is the mistake this series is most likely to invite.
+  const output = format(summarize([
+    { ...genuine, risk: 47 },
+    { ...genuine, risk: 62 },
+    { ...genuine, risk: 62 },
+  ]));
+  assert.match(output, /Risk is a sum of fixed penalties, not a measurement: 47, 62/);
+  assert.match(output, /Do not average it/);
+  assert.doesNotMatch(output, /median 5[0-9]/, "no central tendency is reported for risk");
+});

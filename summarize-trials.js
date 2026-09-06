@@ -53,6 +53,8 @@ export function summarize(records) {
     measured: measured.length,
     peakAudioLevel: pluck(measured, "peakAudioLevel"),
     responseSeconds: pluck(measured, "responseSeconds"),
+    // Listed, never reduced. A spread would imply a scale this number does not have.
+    riskValues: [...new Set(trials.map((record) => record.risk).filter(Number.isFinite))].sort((first, second) => first - second),
     // The threshold each run was actually judged against, read from the runs rather than
     // from this file's imports, so a log written by an older build still reads correctly.
     speechLevelThresholds: [...new Set(measured.map((record) => record.speechLevelThreshold).filter(Number.isFinite))],
@@ -83,6 +85,12 @@ function caveats(summary) {
     lines.push("Relayed and synthetic trials cannot be separated from genuine ones by design: the recognizer does not know what produced the audio. Their decisions matching a genuine run is the demonstrated limit, not a failure to detect.");
   }
   if (summary.measured < 5) lines.push(`Only ${summary.measured} measured run${summary.measured === 1 ? "" : "s"}. Too few to move a threshold against.`);
+  // The risk column is the one number here that invites being averaged, and it is the
+  // one number that must not be. Every term in it is a threshold test that fired or did
+  // not, so the total encodes which checks failed, not how badly anything scored.
+  if (summary.riskValues.length) {
+    lines.push(`Risk is a sum of fixed penalties, not a measurement: ${summary.riskValues.join(", ")} across this series. Do not average it. The same total can come from different checks failing, and how far a measurement sat from its threshold never changes it — the spreads above are the only graded numbers here.`);
+  }
   if (summary.peakAudioLevel && summary.speechLevelThresholds.length === 1) {
     const threshold = summary.speechLevelThresholds[0];
     if (summary.peakAudioLevel.max < threshold) {

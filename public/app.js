@@ -538,12 +538,23 @@ function renderDecision(element, decision) {
   const heading = document.createElement("strong");
   heading.textContent = decision.risk === null
     ? decision.action.toUpperCase()
-    : `${decision.action.toUpperCase()} · heuristic score ${decision.risk}/100`;
+    : `${decision.action.toUpperCase()} · ${decision.risk}/100`;
   const list = document.createElement("ul");
   decision.reasons.forEach((reason) => {
     const item = document.createElement("li");
     item.textContent = reason;
     list.append(item);
   });
-  element.append(heading, list);
+  element.append(heading);
+  // Every term in this number is a threshold test that either fired or did not, so two
+  // digits out of a hundred read as a graded measurement when nothing here is graded.
+  // The reasons below say which checks failed; the number only re-encodes that, and
+  // saying so next to it costs one line.
+  if (decision.risk !== null) {
+    const caption = document.createElement("p");
+    caption.className = "result__caption";
+    caption.textContent = "A sum of fixed penalties for the checks listed below, not a graded measurement. The same total can come from different checks failing, and how far a measurement sat from its threshold never changes it.";
+    element.append(caption);
+  }
+  element.append(list);
 }

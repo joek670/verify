@@ -68,6 +68,17 @@ after the last thing it heard. That gap falls only on turns that failed to match
 counting it would bias the response time upward for exactly the runs that failed, in the
 one measurement the window's upper bound has to be corrected against.
 
+**Speech activity** — two thresholds in series, in different files, of which only the
+second one scores. `SPEECH_LEVEL` (0.08, `public/app.js`) is an amplitude gate: it decides
+whether a single audio sample counted as active, and it is applied only while the prompt
+is not being spoken, so the app's own voice through the speakers cannot carry the signal.
+`SPEECH_ACTIVITY_FLOOR` (0.15, `public/analyzer.js`) is a ratio floor: it decides whether
+the fraction of active samples counts as sustained speech. Because they compose, an
+amplitude gate set too high drives the ratio to zero however much the user said, and the
+penalty then reports a silence that did not happen. Each trial records
+`speechLevelThreshold` beside `peakAudioLevel` so a series can be re-read against the gate
+it was collected under. See the addendum to `docs/adr/0001`.
+
 **Trial** — one recorded attempt: the label, the decision, and the measurements the score
 was computed from. Every attempt is recorded, including one that could not run, so a
 series has an honest denominator.

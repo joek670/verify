@@ -84,3 +84,7 @@ The honest statement today is therefore narrower than the one above: the floor i
 construction, and it has never been observed doing the work this ADR credits it with,
 because something else binds first. A trial series against the current build resolves it.
 Until then, treat "a good run scores 35" as a claim about the code, not an observation.
+
+That series is tracked at
+`.scratch/liveness-threshold-calibration/issues/01-trial-series-against-current-build.md`,
+so the question is on the frontier rather than resting here in a decision record.

@@ -3,8 +3,6 @@ node_modules/
 Thumbs.db
 *.log
 
-# Agent planning scratch (local issue tracker) — not published on a public repo
-.scratch/
-
-# Labeled trial records written when VERIFY_LOG is set
+# Labeled trial records written when VERIFY_LOG is set. Unanchored, so it also
+# covers a log written under .scratch/, which is tracked.
 *.jsonl

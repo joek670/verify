@@ -107,6 +107,14 @@ For production, require both upload and liveness checks for sensitive actions. A
 - The app uses an explicit media allowlist and a 50 MB inspection limit.
 - The live stream is stopped after completion or cancellation, and any in-flight recognition and speech is aborted with it.
 
+## contrib
+
+`contrib/speakease-voices/` is not part of the gate. It holds a voice-selection module
+for SpeakEase, a separate speech-practice app, parked here because that project's own
+source tree was not reachable when it was written. The server never serves it and no
+code here imports it; `npm test` runs its test because this repository can run it. See
+[`contrib/speakease-voices/README.md`](contrib/speakease-voices/README.md).
+
 ## License
 
 MIT

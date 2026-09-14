@@ -84,12 +84,19 @@ test("blocks an incomplete static and silent challenge", () => {
   assert.equal(decision.risk, 100);
 });
 
-test("does not accept a single transient audio sample", () => {
+test("reports the speech activity ratio without letting it change the score", () => {
+  // Withdrawn from the score in `docs/adr/0002`. The ratio's denominator is every sample
+  // taken while the prompt was silent, and sampling runs at a fixed rate, so the fraction
+  // falls as the response gets longer whatever the speaker does. A talkative run and a
+  // near-silent one of the same length now score the same, and the measurement is still
+  // reported so a trial series can be read against it.
   const sustained = scoreLiveness({ userClaimedComplete: true, responseSeconds: 8, speechActivityRatio: 0.6, visualMotion: 0.1 });
   const transient = scoreLiveness({ userClaimedComplete: true, responseSeconds: 8, speechActivityRatio: 0.01, visualMotion: 0.1 });
-  assert.notEqual(transient.action, "allow");
-  assert.ok(transient.risk > sustained.risk);
-  assert.match(transient.reasons.join(" "), /sustained microphone activity/i);
+  assert.equal(sustained.risk, LIVENESS_FLOOR_RISK);
+  assert.equal(transient.risk, sustained.risk);
+  assert.match(transient.reasons.join(" "), /Microphone activity covered 1\.0 percent/);
+  assert.match(transient.reasons.join(" "), /does not change the score/);
+  assert.doesNotMatch(transient.reasons.join(" "), /sustained microphone activity/i);
 });
 
 test("never scores liveness below the unverified floor", () => {
@@ -243,9 +250,12 @@ test("splits the response penalty evenly across the two turns", () => {
   const firstOnly = scoreLiveness({ ...recognized, secondTurnMatched: false });
   const secondOnly = scoreLiveness({ ...recognized, firstTurnMatched: false });
   const neither = scoreLiveness({ ...recognized, firstTurnMatched: false, secondTurnMatched: false });
-  assert.equal(firstOnly.risk - both.risk, 15);
-  assert.equal(secondOnly.risk - both.risk, 15);
-  assert.equal(neither.risk - both.risk, 30);
+  // 42, not the 30 of `docs/adr/0001`: the speech activity ratio was withdrawn from the
+  // score in `0002` and its 12 points moved here, to the only signal in this check with
+  // demonstrated evidence behind it. Even across the two turns, as before.
+  assert.equal(firstOnly.risk - both.risk, 21);
+  assert.equal(secondOnly.risk - both.risk, 21);
+  assert.equal(neither.risk - both.risk, 42);
 });
 
 test("keeps the penalty budget at exactly 100 on the recognized path", () => {
@@ -275,7 +285,7 @@ test("falls back to self-attestation when recognition is unavailable", () => {
   const claimed = scoreLiveness({ userClaimedComplete: true, responseSeconds: 12, speechActivityRatio: 0.6, visualMotion: 0.1 });
   const abandoned = scoreLiveness({ userClaimedComplete: false, responseSeconds: 12, speechActivityRatio: 0.6, visualMotion: 0.1 });
   assert.equal(claimed.risk, LIVENESS_FLOOR_RISK);
-  assert.equal(abandoned.risk - claimed.risk, 30);
+  assert.equal(abandoned.risk - claimed.risk, 42, "the same term the two turns split, taken whole");
   assert.match(claimed.reasons.join(" "), /speech recognition was unavailable/i);
 });
 
@@ -342,8 +352,11 @@ test("an unmeasured signal is scored as failing, and says so instead of claiming
   assert.equal(unmeasured.risk, failing.risk, "an unmeasured signal is never softer than a failed one");
   const text = unmeasured.reasons.join(" ");
   assert.match(text, /The response time was not measured/);
-  assert.match(text, /Microphone activity while the prompt was not being spoken was not measured/);
   assert.match(text, /Frame-to-frame visual activity was not measured/);
+  // The speech activity ratio is the exception, because it no longer scores: an absent
+  // one costs nothing, so there is no penalty to explain and the reason is dropped
+  // rather than reworded. See `docs/adr/0002`.
+  assert.doesNotMatch(text, /Microphone activity/, "a signal that cannot lose points cannot be unmeasured in a way that costs any");
   assert.doesNotMatch(text, /outside the 2 to 30 second window/, "an absent time was never compared with the window");
   assert.doesNotMatch(text, /was not detected/, "nothing was measured, so nothing can be said not to have been detected");
 });

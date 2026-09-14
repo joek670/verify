@@ -84,3 +84,7 @@ The honest statement today is therefore narrower than the one above: the floor i
 construction, and it has never been observed doing the work this ADR credits it with,
 because something else binds first. A trial series against the current build resolves it.
 Until then, treat "a good run scores 35" as a claim about the code, not an observation.
+
+The series was collected on 2026-09-05 and both thresholds were wrong, as suspected. See
+`0002`, which withdraws the speech activity ratio from the score, moves the motion floor,
+and supersedes the 15 and 15 split above with 21 and 21.

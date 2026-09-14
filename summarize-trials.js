@@ -3,7 +3,6 @@ import { fileURLToPath } from "node:url";
 import {
   CHALLENGE_WINDOW_SECONDS,
   LIVENESS_FLOOR_RISK,
-  SPEECH_ACTIVITY_FLOOR,
   VISUAL_MOTION_FLOOR,
 } from "./public/analyzer.js";
 
@@ -92,14 +91,10 @@ function caveats(summary) {
   if (summary.riskValues.length) {
     lines.push(`Risk is a sum of fixed penalties, not a measurement: ${summary.riskValues.join(", ")} across this series. Do not average it. The same total can come from different checks failing, and how far a measurement sat from its threshold never changes it — the spreads above are the only graded numbers here.`);
   }
-  // Two different numbers, and only the second one scores. The sample gate decides
-  // whether one audio sample counts as active; the activity floor is what the ratio of
-  // active samples is judged against. Testing the gate alone passes a series whose every
-  // run was loud enough to register and still never came near the floor — which is this
-  // series, and which is exactly the constant this summary exists to catch.
-  if (summary.speechActivityRatio && summary.speechActivityRatio.max < SPEECH_ACTIVITY_FLOOR) {
-    lines.push(`No run reached the ${SPEECH_ACTIVITY_FLOOR} speech activity floor, so that signal was a constant across this whole series and earned no points in any run.`);
-  }
+  // The ratio has no threshold to be a constant against: it was withdrawn from the score
+  // in `docs/adr/0002` because its denominator is the length of the window. The gate
+  // check below stays, because a ratio that could only ever have been zero is still worth
+  // telling apart from one that was measured and came out small.
   if (summary.peakAudioLevel && summary.speechLevelThresholds.length === 1) {
     const threshold = summary.speechLevelThresholds[0];
     if (summary.peakAudioLevel.max < threshold) {
@@ -138,7 +133,7 @@ export function format(summary) {
     formatSpread("peak audio level", summary.peakAudioLevel),
     `    sample gate ${summary.speechLevelThresholds.join(", ") || "not recorded"}; a sample below it is not counted as active`,
     formatSpread("speech activity ratio", summary.speechActivityRatio),
-    `    activity floor ${SPEECH_ACTIVITY_FLOOR}, the threshold this signal is scored against`,
+    "    reported, never scored; it falls as the response gets longer — see docs/adr/0002",
     formatSpread("visual motion", summary.visualMotion),
     `    motion floor ${VISUAL_MOTION_FLOOR}`,
     "",

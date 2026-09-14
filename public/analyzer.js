@@ -14,8 +14,12 @@ export const LIVENESS_FLOOR_RISK = 35;
 // bounds describe the response itself and lets the lower bound catch a near instant
 // answer on either path.
 //
-// The upper bound is still an estimate. Excluded prompt time is measured exactly, but
-// the recogniser's end-of-speech latency is not, and it is inside this measurement.
+// The upper bound was an estimate and is now an estimate that has been checked. The
+// first post-fix series (n=6 genuine, 2026-09-05) ran 8.49 to 22.26 seconds, inside the
+// window every time, so nothing here moves: 30 leaves 7.7 seconds above the slowest run
+// recorded. Tightening it toward 22.26 would fit the constant to six runs. Excluded
+// prompt time is measured exactly, but the recogniser's end-of-speech latency is not,
+// and it is still inside this measurement.
 export const CHALLENGE_WINDOW_SECONDS = { minimum: 2, maximum: 30 };
 
 // The time the user held the floor, which is what `CHALLENGE_WINDOW_SECONDS` bounds —
@@ -30,11 +34,17 @@ export function measureResponseSeconds({ elapsedMs, spokenPromptMs = 0, answerGa
   return Math.max(0, elapsedMs - spokenPromptMs - answerGapMs) / 1000;
 }
 
-// Fraction of samples that must carry speech, and mean frame-to-frame pixel change that
-// counts as movement. Both are guesses of the same kind as the window's upper bound, and
-// both are named rather than inlined so a trial series can be summarised against them.
-export const SPEECH_ACTIVITY_FLOOR = 0.15;
-export const VISUAL_MOTION_FLOOR = 0.025;
+// Mean frame-to-frame pixel change that counts as movement, moved against the first
+// post-fix series: n=6 genuine runs on 2026-09-05 measured 0.0043 to 0.0108 and none
+// reached the previous 0.025. That value asked for an average change of about 6.4 grey
+// levels across every pixel of every frame, which a seated speaker in front of a static
+// background cannot produce — it was a fixed 11 point penalty, not a signal.
+//
+// 0.002 sits 2.1x below the quietest recorded run, so a genuine run has to be less than
+// half as active as the least active one on record before this fires. What the series
+// does not establish is the other side: no still-frame or photograph trial has ever been
+// run, so this floor is known to pass a person and is not known to fail a photograph.
+export const VISUAL_MOTION_FLOOR = 0.002;
 
 // Said of a signal whose measurement is missing rather than failing. Comparing an
 // absent number against a threshold yields `false`, which would otherwise report "not
@@ -247,8 +257,13 @@ export function scoreLiveness({
 
   // Penalties are additive from the floor and sum to exactly 100, so each failing
   // signal stays distinguishable instead of saturating at `block`. Recognition splits
-  // the 30 point response term evenly across the two turns rather than adding a new
+  // the 42 point response term evenly across the two turns rather than adding a new
   // term, so the budget still totals 100 on both the recognized and fallback paths.
+  //
+  // That term was 30 until the speech activity ratio was withdrawn from the score and
+  // its 12 points moved here. See `docs/adr/0002`: the turns are the only signal in
+  // this check with demonstrated evidence behind them, so the withdrawn points went to
+  // them rather than to the two remaining threshold tests.
   let score = LIVENESS_FLOOR_RISK;
   const reasons = [
     recognitionAvailable
@@ -261,13 +276,13 @@ export function scoreLiveness({
     if (firstTurnMatched) {
       reasons.push("The first challenge phrase was recognized");
     } else {
-      score += 15;
+      score += 21;
       reasons.push("The first challenge phrase was not recognized");
     }
     if (secondTurnMatched) {
       reasons.push("The recall turn was answered, so a recording made before this challenge was issued would not have passed");
     } else {
-      score += 15;
+      score += 21;
       reasons.push("The recall turn was not answered");
     }
     // Recogniser confidence is an uncalibrated vendor number, so it is reported for the
@@ -278,7 +293,7 @@ export function scoreLiveness({
   } else if (userClaimedComplete) {
     reasons.push("On-device speech recognition was unavailable, so the spoken response was not checked; the user marked the challenge complete instead");
   } else {
-    score += 30;
+    score += 42;
     reasons.push("On-device speech recognition was unavailable and the user did not mark the challenge complete");
   }
 
@@ -295,16 +310,18 @@ export function scoreLiveness({
     score += 12;
     reasons.push(`The response took ${responseSeconds.toFixed(1)} seconds, outside ${bounds}`);
   }
-  // Measured only while the prompt is not being spoken, otherwise the app's own voice
-  // carries this signal through the speakers and the check passes on its own output.
-  if (!Number.isFinite(speechActivityRatio)) {
-    score += 12;
-    reasons.push(`Microphone activity while the prompt was not being spoken was not measured, so this signal ${UNMEASURED}`);
-  } else if (speechActivityRatio >= SPEECH_ACTIVITY_FLOOR) {
-    reasons.push("Sustained microphone activity was detected while the prompt was not being spoken");
-  } else {
-    score += 12;
-    reasons.push("Sustained microphone activity was not detected while the prompt was not being spoken");
+  // Reported and never scored, for the same reason recogniser confidence is: a real
+  // number that does not measure the thing its name claims. The ratio divides the samples
+  // carrying speech by every sample taken while the prompt was silent, and that
+  // denominator is the length of the window — sampling ran at a steady 30 Hz across the
+  // whole recorded series, so the fraction falls as the response gets longer whatever the
+  // speaker does. Any floor low enough for a genuine run to clear is therefore a second
+  // response-time test wearing a microphone's name. See `docs/adr/0002`.
+  //
+  // Still measured, still logged, still shown. An input withdrawn from the score is not
+  // an input withdrawn from the evidence.
+  if (Number.isFinite(speechActivityRatio)) {
+    reasons.push(`Microphone activity covered ${(speechActivityRatio * 100).toFixed(1)} percent of the samples taken while the prompt was not being spoken; this fraction falls as the response gets longer and does not change the score`);
   }
   if (!Number.isFinite(visualMotion)) {
     score += 11;

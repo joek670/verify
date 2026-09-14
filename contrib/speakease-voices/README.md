@@ -38,20 +38,47 @@ the Web Speech API. One file, no dependencies.
 const select = document.getElementById('voiceSelect');
 SpeakEaseVoices.populateVoiceSelect(select);
 
-// Speak with the chosen voice.
-async function speak(text) {
-  const voice = await SpeakEaseVoices.resolveVoice(select.value);
-  const u = new SpeechSynthesisUtterance(text);
-  if (voice) u.voice = voice;
-  SpeakEaseVoices.applyNaturalDefaults(u); // rate 0.98, pitch 1.0 — tuned for clarity
-  speechSynthesis.cancel();
-  speechSynthesis.speak(u);
-}
+// Speak with the chosen voice. Call it straight from the tap handler:
+// anything awaited first costs the user-gesture context, and on iOS costs
+// the chosen voice along with it.
+playButton.addEventListener('click', () => {
+  SpeakEaseVoices.speak(promptText, select.value);
+});
 ```
 
 The dropdown renders as grouped options — *Female voices (n)*, *Male voices (n)*,
 *Other voices (n)* — with cleaned-up names
 (`Microsoft Aria Online (Natural) - English (United States)` → `Aria · Natural · US`).
+
+## What the device actually does
+
+Picking a voice and hearing that voice are two different things, and on WebKit —
+which is every browser on iOS, Chrome included — the second one is easy to lose. One
+phrase was spoken four ways on iOS Chrome on 2026-09-14, differing only in how the
+voice was attached:
+
+| | How the voice was attached | Result |
+| --- | --- | --- |
+| A | Promise-resolved voice, no `lang`, `cancel()` in the same tick | system default voice |
+| B | A, plus `utterance.lang` | system default voice |
+| C | Voice re-read from `getVoices()` in the handler, `lang` set, spoken inline | **the chosen voice** |
+| D | C, but `cancel()` then `speak()` from a 100 ms timer | system default voice |
+
+Three things follow, and `speak()` does all three:
+
+1. **Read the voice from the current list.** A voice object captured earlier can be
+   ignored without error — which is why `resolveVoice` (async) is kept only for
+   inspecting a selection, and `resolveVoiceSync` is what the speak path uses.
+2. **Set `lang` as well as `voice`.** B shows `lang` alone is not enough, but C sets it
+   because WebKit leans on it when choosing what to speak with.
+3. **Speak in the same tick as the tap.** D is the instructive one: its only difference
+   from C is the deferred call, and that alone was enough to lose the voice. So
+   interrupting is opt-in — `speak(text, uri, { interrupt: true })` cancels and speaks a
+   tick later, and on iOS that utterance may come out in the default voice. Without it,
+   a new utterance queues behind the current one and keeps its voice.
+
+A gender-labelled dropdown is worth nothing if every entry sounds the same, so this is
+the part to re-measure on a new iOS version rather than assume.
 
 ## Notes
 
@@ -82,7 +109,7 @@ implementation against a 32-voice roster (Edge natural, legacy SAPI, Google, App
 Android generics, plus French and Japanese voices that must be filtered out). Node
 gives each test file its own process, so those stubs cannot reach the gate's own tests.
 
-23 tests, covering: every gender label in the roster including the two that must stay
+30 tests, covering: every gender label in the roster including the two that must stay
 `unknown`; the substring collisions the word boundaries exist to prevent; female-before-male
 keyword order; non-English voices never entering the groups; most-natural-first
 ordering, Natural over Desktop, and the listener's locale over another English one; one
@@ -91,6 +118,12 @@ default, the persisted choice, a restored choice, a saved voice that no longer e
 and a custom storage key; `resolveVoice` returning `null` rather than throwing on a
 miss; the prosody defaults and their overrides; and empty groups when there is no
 `speechSynthesis` at all.
+
+Seven of those pin the speak path against what the device measurement above found: that
+`speak()` sets `lang` as well as `voice`, hands the utterance over in the same tick
+rather than deferring it, calls no `cancel()` unless asked, and resolves the voice from
+the list as it stands rather than one captured earlier — the stub deliberately swaps the
+roster mid-test to prove the last one.
 
 **What the test cannot check is how any of it sounds.** The ranking is a heuristic over
 voice *names*: it predicts which voices are the neural ones, not that the top-ranked

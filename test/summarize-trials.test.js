@@ -9,6 +9,7 @@ const genuine = {
   peakAudioLevel: 0.2,
   responseSeconds: 12,
   secondTurnMatched: true,
+  speechActivityRatio: 0.2,
   speechLevelThreshold: 0.08,
   visualMotion: 0.04,
 };
@@ -42,9 +43,37 @@ test("reports the spread of each measurement, not just its verdict", () => {
 test("says a signal was a constant when no run ever reached its threshold", () => {
   // This is the failure the summary exists to surface: a term that cannot fire is not a
   // signal, it is a fixed penalty, and reading the scores alone will never show it.
-  const output = format(summarize([{ ...genuine, peakAudioLevel: 0.071, visualMotion: 0.0017 }]));
-  assert.match(output, /No run ever reached the 0.08 speech level/);
+  const output = format(summarize([{ ...genuine, speechActivityRatio: 0.079, visualMotion: 0.0017 }]));
+  assert.match(output, /No run reached the 0\.15 speech activity floor/);
   assert.match(output, /No run reached the 0\.025 motion floor/);
+});
+
+test("judges the speech signal against the floor it is scored on, not the sample gate", () => {
+  // The shape of the real series: every run was loud enough for samples to register, and
+  // no run came close to the ratio the check actually tests. Reading the gate alone
+  // reports this series as healthy on a term that never once fired.
+  const output = format(summarize([
+    { ...genuine, peakAudioLevel: 0.121, speechActivityRatio: 0.015 },
+    { ...genuine, peakAudioLevel: 0.282, speechActivityRatio: 0.079 },
+  ]));
+  assert.match(output, /No run reached the 0\.15 speech activity floor/);
+  assert.doesNotMatch(output, /sample gate, so no sample/, "the gate was cleared; only the scored floor was not");
+});
+
+test("a ratio of zero because nothing cleared the sample gate says so", () => {
+  // Distinct from the floor never being reached: here the ratio could not have been
+  // anything but zero, so it is not a measurement of the speaker at all.
+  const output = format(summarize([{ ...genuine, peakAudioLevel: 0.071, speechActivityRatio: 0 }]));
+  assert.match(output, /No sample in any run reached the 0.08 sample gate/);
+  assert.match(output, /zero by construction rather than by measurement/);
+});
+
+test("reports the speech activity ratio beside the floor it is judged against", () => {
+  // The floor was printed with no measurement next to it, which is the one pairing the
+  // series has to be read on to move that constant.
+  const output = format(summarize([{ ...genuine, speechActivityRatio: 0.038 }]));
+  assert.match(output, /speech activity ratio: min 0\.038/);
+  assert.match(output, /activity floor 0\.15, the threshold this signal is scored against/);
 });
 
 test("says the replay axis is untested until a pre-recorded trial exists", () => {

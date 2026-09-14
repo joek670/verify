@@ -55,6 +55,7 @@ export function summarize(records) {
     responseSeconds: pluck(measured, "responseSeconds"),
     // Listed, never reduced. A spread would imply a scale this number does not have.
     riskValues: [...new Set(trials.map((record) => record.risk).filter(Number.isFinite))].sort((first, second) => first - second),
+    speechActivityRatio: pluck(measured, "speechActivityRatio"),
     // The threshold each run was actually judged against, read from the runs rather than
     // from this file's imports, so a log written by an older build still reads correctly.
     speechLevelThresholds: [...new Set(measured.map((record) => record.speechLevelThreshold).filter(Number.isFinite))],
@@ -91,10 +92,18 @@ function caveats(summary) {
   if (summary.riskValues.length) {
     lines.push(`Risk is a sum of fixed penalties, not a measurement: ${summary.riskValues.join(", ")} across this series. Do not average it. The same total can come from different checks failing, and how far a measurement sat from its threshold never changes it — the spreads above are the only graded numbers here.`);
   }
+  // Two different numbers, and only the second one scores. The sample gate decides
+  // whether one audio sample counts as active; the activity floor is what the ratio of
+  // active samples is judged against. Testing the gate alone passes a series whose every
+  // run was loud enough to register and still never came near the floor — which is this
+  // series, and which is exactly the constant this summary exists to catch.
+  if (summary.speechActivityRatio && summary.speechActivityRatio.max < SPEECH_ACTIVITY_FLOOR) {
+    lines.push(`No run reached the ${SPEECH_ACTIVITY_FLOOR} speech activity floor, so that signal was a constant across this whole series and earned no points in any run.`);
+  }
   if (summary.peakAudioLevel && summary.speechLevelThresholds.length === 1) {
     const threshold = summary.speechLevelThresholds[0];
     if (summary.peakAudioLevel.max < threshold) {
-      lines.push(`No run ever reached the ${threshold} speech level, so that signal was a constant across this whole series and earned no points in any run.`);
+      lines.push(`No sample in any run reached the ${threshold} sample gate, so no sample could be counted as active and the ratio above was zero by construction rather than by measurement.`);
     }
   }
   if (summary.visualMotion && summary.visualMotion.max < VISUAL_MOTION_FLOOR) {
@@ -127,7 +136,9 @@ export function format(summary) {
     formatSpread("response seconds", summary.responseSeconds, "s"),
     `    window ${CHALLENGE_WINDOW_SECONDS.minimum}–${CHALLENGE_WINDOW_SECONDS.maximum}s, upper bound is an estimate`,
     formatSpread("peak audio level", summary.peakAudioLevel),
-    `    speech level threshold ${summary.speechLevelThresholds.join(", ") || "not recorded"}, ratio floor ${SPEECH_ACTIVITY_FLOOR}`,
+    `    sample gate ${summary.speechLevelThresholds.join(", ") || "not recorded"}; a sample below it is not counted as active`,
+    formatSpread("speech activity ratio", summary.speechActivityRatio),
+    `    activity floor ${SPEECH_ACTIVITY_FLOOR}, the threshold this signal is scored against`,
     formatSpread("visual motion", summary.visualMotion),
     `    motion floor ${VISUAL_MOTION_FLOOR}`,
     "",

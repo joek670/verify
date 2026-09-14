@@ -92,7 +92,20 @@ Object.defineProperty(globalThis, 'navigator', {
   configurable: true,
   writable: true
 });
-globalThis.speechSynthesis = { getVoices: () => VOICES };
+// The synth stub records what was handed to it, so the speak path can be
+// asserted on: which utterance, in which tick, and whether cancel was called.
+let currentVoices = VOICES;
+const spoken = [];
+let cancels = 0;
+
+globalThis.SpeechSynthesisUtterance = function (text) { this.text = text; };
+globalThis.speechSynthesis = {
+  speaking: false,
+  pending: false,
+  getVoices: () => currentVoices,
+  speak(u) { spoken.push(u); },
+  cancel() { cancels++; }
+};
 globalThis.localStorage = {
   getItem: (k) => (store.has(k) ? store.get(k) : null),
   setItem: (k, v) => { store.set(k, String(v)); }
@@ -286,6 +299,80 @@ test('explicit prosody options override the defaults', () => {
   assert.equal(u.rate, 0.9);
   assert.equal(u.pitch, 1.2);
   assert.equal(u.volume, 0.5);
+});
+
+// --- the speak path ------------------------------------------------------
+// Measured on iOS Chrome (WebKit) on 2026-09-14: of four ways to attach a
+// chosen voice, only "read the current list, set lang, speak in the same
+// tick" actually used that voice. These tests pin each of those three.
+test('resolveVoiceSync reads the list as it stands now', (t) => {
+  t.after(() => { currentVoices = VOICES; });
+  assert.equal(V.resolveVoiceSync('Samantha|en-US').name, 'Samantha');
+  assert.equal(V.resolveVoiceSync('no such voice'), null);
+
+  const swapped = [{ name: 'Late Arrival', lang: 'en-GB', voiceURI: 'late|en-GB' }];
+  currentVoices = swapped;
+  assert.equal(V.resolveVoiceSync('late|en-GB'), swapped[0]);
+  assert.equal(V.resolveVoiceSync('Samantha|en-US'), null, 'stale list was consulted');
+});
+
+test('speak sets both voice and lang', (t) => {
+  t.after(() => { spoken.length = 0; cancels = 0; });
+  const u = V.speak('hello', 'Daniel|en-GB');
+  assert.equal(u.voice.name, 'Daniel');
+  assert.equal(u.lang, 'en-GB');
+  assert.equal(u.rate, 0.98);
+});
+
+test('speak hands the utterance over in the same tick', (t) => {
+  t.after(() => { spoken.length = 0; cancels = 0; });
+  V.speak('hello', 'Samantha|en-US');
+  assert.equal(spoken.length, 1, 'speak() was deferred instead of called inline');
+  assert.equal(spoken[0].voice.name, 'Samantha');
+  assert.equal(cancels, 0, 'cancel() would cost the voice on WebKit');
+});
+
+test('speak resolves the voice from the current list, not a captured one', (t) => {
+  t.after(() => { currentVoices = VOICES; spoken.length = 0; cancels = 0; });
+  const swapped = [{ name: 'Late Arrival', lang: 'en-GB', voiceURI: 'late|en-GB' }];
+  currentVoices = swapped;
+  const u = V.speak('hello', 'late|en-GB');
+  assert.equal(u.voice, swapped[0]);
+});
+
+test('an unknown voiceURI still speaks, with no voice attached', (t) => {
+  t.after(() => { spoken.length = 0; cancels = 0; });
+  const u = V.speak('hello', 'uninstalled|en-US');
+  assert.equal(u.voice, undefined);
+  assert.equal(u.lang, undefined);
+  assert.equal(spoken.length, 1);
+});
+
+test('interrupting is opt-in, and only then is the call deferred', async (t) => {
+  t.after(() => {
+    globalThis.speechSynthesis.speaking = false;
+    spoken.length = 0;
+    cancels = 0;
+  });
+
+  globalThis.speechSynthesis.speaking = true;
+  V.speak('hello', 'Samantha|en-US');
+  assert.equal(cancels, 0, 'speech in progress was interrupted without being asked');
+  assert.equal(spoken.length, 1, 'the new utterance should queue behind the current one');
+
+  spoken.length = 0;
+  V.speak('urgent', 'Samantha|en-US', { interrupt: true });
+  assert.equal(cancels, 1);
+  assert.equal(spoken.length, 0, 'the interrupting utterance waits a tick, by necessity');
+  await new Promise((r) => setTimeout(r, 150));
+  assert.equal(spoken.length, 1);
+});
+
+test('speak returns null where there is no Web Speech API', (t) => {
+  const saved = globalThis.speechSynthesis;
+  delete globalThis.speechSynthesis;
+  t.after(() => { globalThis.speechSynthesis = saved; });
+  assert.equal(V.speak('hello', 'Samantha|en-US'), null);
 });
 
 // --- no Web Speech API at all (Firefox) ----------------------------------

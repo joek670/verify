@@ -21,15 +21,11 @@
  *       // most-natural-first.
  *     });
  *
- *     function speak(text) {
- *       SpeakEaseVoices.resolveVoice(select.value).then(function (voice) {
- *         var u = new SpeechSynthesisUtterance(text);
- *         if (voice) u.voice = voice;
- *         SpeakEaseVoices.applyNaturalDefaults(u); // rate/pitch tuned for clarity
- *         speechSynthesis.cancel();
- *         speechSynthesis.speak(u);
- *       });
- *     }
+ *     // Call this straight from the tap handler. Anything awaited first
+ *     // costs the gesture, and on iOS costs the chosen voice with it.
+ *     playButton.addEventListener('click', function () {
+ *       SpeakEaseVoices.speak(promptText, select.value);
+ *     });
  *   </script>
  *
  * No dependencies. Works wherever the Web Speech API exists; degrades to an
@@ -271,6 +267,66 @@
   }
 
   /**
+   * The same lookup without the promise, reading the voice list as it stands
+   * right now. Use this one when speaking: a voice object taken from an
+   * earlier list can be ignored, and the await needed to get one costs the
+   * user-gesture context that iOS requires for the first utterance.
+   */
+  function resolveVoiceSync(voiceURI) {
+    var voices = (global.speechSynthesis && global.speechSynthesis.getVoices()) || [];
+    for (var i = 0; i < voices.length; i++) {
+      if (voices[i].voiceURI === voiceURI) return voices[i];
+    }
+    return null;
+  }
+
+  /**
+   * Speaks `text` with the voice named by `voiceURI` — call it directly from
+   * the tap or click handler, never after an await.
+   *
+   * Measured on iOS Chrome (WebKit) on 2026-09-14, speaking one phrase four
+   * ways: this is the only arrangement where the chosen voice was actually
+   * used. Attaching a promise-resolved voice, with or without `lang`, and
+   * deferring the call into a timer after `cancel()` all produced the system
+   * default voice instead, whatever name was picked. So, in order:
+   *
+   *   1. the voice is read from the current list, not a captured one;
+   *   2. `lang` is set alongside `voice`, because WebKit leans on it;
+   *   3. `speak()` runs synchronously inside the handler — no await, and no
+   *      `setTimeout` after `cancel()`, which loses the gesture and with it
+   *      the voice.
+   *
+   * Interrupting speech already in progress is the one case that cannot be
+   * done in the same tick, so it is opt-in via `{ interrupt: true }` and
+   * carries the caveat above: on iOS the interrupting utterance may fall back
+   * to the default voice. Leaving it off lets the current utterance finish.
+   *
+   * Returns the utterance (already speaking), or null where there is no
+   * Web Speech API.
+   */
+  function speak(text, voiceURI, opts) {
+    var synth = global.speechSynthesis;
+    if (!synth) return null;
+    opts = opts || {};
+
+    var utterance = new global.SpeechSynthesisUtterance(text);
+    var voice = typeof voiceURI === 'string' ? resolveVoiceSync(voiceURI) : voiceURI;
+    if (voice) {
+      utterance.voice = voice;
+      utterance.lang = voice.lang; // what WebKit actually honours
+    }
+    applyNaturalDefaults(utterance, opts);
+
+    if (opts.interrupt && (synth.speaking || synth.pending)) {
+      synth.cancel();
+      global.setTimeout(function () { synth.speak(utterance); }, 100);
+    } else {
+      synth.speak(utterance);
+    }
+    return utterance;
+  }
+
+  /**
    * Builds a <select> with correctly-gendered optgroups, most-natural-first
    * ordering, and the user's last choice restored from localStorage.
    * Returns a promise of the groups.
@@ -337,6 +393,8 @@
     populateVoiceSelect: populateVoiceSelect,
     pickDefault: pickDefault,
     resolveVoice: resolveVoice,
+    resolveVoiceSync: resolveVoiceSync,
+    speak: speak,
     applyNaturalDefaults: applyNaturalDefaults
   };
 })(typeof window !== 'undefined' ? window : this);

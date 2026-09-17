@@ -43,6 +43,48 @@ npm run trials
 That prints the label-versus-decision table, the spread of each measurement next to the threshold it was judged against, and — as prominently — what the series does not show: whether a replay was ever attempted, and whether any signal failed to fire in every single run, which makes it a fixed penalty rather than a signal.
  Nothing leaves the machine: the record goes to the same `127.0.0.1` server that served the page, and it carries the decision and its measurements, never the file, the audio, or the video. Pick a path outside `public/` — the server refuses to start otherwise, because a log inside the served directory would be readable over the same origin that wrote it.
 
+## Simulate
+
+A trial needs a camera, a microphone, and a person. A simulation needs none of them: it
+supplies the transcripts and measurements directly and runs the same scoring path, so a
+scenario can be replayed and compared on a machine with no hardware attached.
+
+```powershell
+npm run simulate
+```
+
+That prints every scenario — `genuine`, `pre-recorded`, `hot-replay`, `relayed`,
+`synthetic` — with the challenge each was judged against, what it said, the decision, and
+the reasons. Name scenarios to narrow it, and `--seed` to fix the challenge:
+
+```powershell
+npm run simulate -- genuine hot-replay --seed=3
+```
+
+The last section of the output is the point of the exercise. `genuine`, `relayed`, and
+`synthetic` come out with an identical decision: this gate cannot tell them apart, and no
+number of further runs will change that. A replay is separated, and only by the recall
+turn — `hot-replay` answers the first turn correctly and still scores 21 higher, which is
+exactly the one term doing the work.
+
+To judge what something else actually produced, hand it a transcript file holding the two
+turns and it is scored the same way:
+
+```powershell
+npm run simulate -- genuine --transcripts=turns.json
+```
+
+`turns.json` is `{ "first": "...", "second": "..." }` — whatever your recognizer, model,
+or pipeline heard for each turn. Individual measurements override the same way:
+`--first=`, `--second=`, `--seconds=`, `--motion=`.
+
+**A simulation is not a trial.** It does not exercise the recognizer, the camera, or the
+clock: those are the numbers being supplied, not results being obtained. It settles
+whether a set of measurements produces the decision a scenario predicts, and whether two
+labels are separable at all. Whether a real replay held to a real camera produces those
+measurements is a question only a labeled run through the page answers, and the simulator
+prints that caveat under every run.
+
 ### The replay trial
 
 The trial worth running first, because it exercises the only axis this check covers:

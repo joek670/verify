@@ -115,6 +115,13 @@ source tree was not reachable when it was written. The server never serves it an
 code here imports it; `npm test` runs its test because this repository can run it. See
 [`contrib/speakease-voices/README.md`](contrib/speakease-voices/README.md).
 
+## Unrelated notes
+
+`docs/dsh-openrouter-windows.md` is not part of the gate either. It records how to hand
+DSH an OpenRouter API key on Windows through the environment that launched it, kept here
+because it was written here. Nothing in this project reads that key or talks to
+OpenRouter. See [`docs/dsh-openrouter-windows.md`](docs/dsh-openrouter-windows.md).
+
 ## License
 
 MIT

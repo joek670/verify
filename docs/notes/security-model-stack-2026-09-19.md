@@ -75,21 +75,20 @@ scope definition (what is in bounds, what is not)
 
 ### The gate, as actually installed (2026-09-19)
 
-The semgrep half of the gate is now a script: `npm run gate` runs `node --test`, then a
-rule coverage self-test, then the repo scan, and exits non-zero on any of the three. It
-calls `docker run` directly rather than a shell wrapper, so it behaves the same from
-PowerShell 5.1, cmd and Git Bash. `semgrep-core` has no native Windows build, so Docker
-or WSL are the only routes; `trivy` is still the Docker wrapper in `~/.local/bin` and
-`pip-audit` is native via `uv tool install`.
+The whole gate is now one script. `npm run gate` runs `node --test`, a rule coverage
+self-test, the semgrep repo scan, a trivy filesystem scan and `pip-audit`, and exits
+non-zero on any of them. It calls `docker run` directly rather than a shell wrapper, so
+it behaves the same from PowerShell 5.1, cmd and Git Bash. `semgrep-core` has no native
+Windows build, so Docker or WSL are the only routes; trivy runs from its own image with
+a named cache volume, and `pip-audit` is a native binary via `uv tool install`.
 
 ```bash
-npm run gate                              # node --test + coverage self-test + repo scan
-
-trivy fs --scanners vuln,secret,misconfig --skip-dirs node_modules \
-  --exit-code 1 .
-
-pip-audit -r requirements.txt             # already exits 1 on findings
+npm run gate
 ```
+
+The gate does **not** mount the Docker socket into the trivy container, though the
+`~/.local/bin/trivy` wrapper does. The wrapper needs it for `trivy image`; the gate only
+runs `trivy fs`, and the daemon socket is root on the host for a capability it never uses.
 
 The scan `npm run gate` runs, for reference:
 
@@ -99,7 +98,7 @@ semgrep scan --config=security/semgrep/rules.yml \
   --exclude=node_modules --exclude=security/semgrep/fixtures --error
 ```
 
-**Three traps.** First, `semgrep` and `trivy` both exit 0 even when they report findings,
+**Four traps.** First, `semgrep` and `trivy` both exit 0 even when they report findings,
 so a gate that only checks the exit status passes silently. Measured on a fixture with one
 known finding: semgrep exits 0 without `--error` and 1 with it; trivy exits 0 without
 `--exit-code 1` and 1 with it. The flag is `--error` — there is no `--error-on-findings`.
@@ -134,9 +133,32 @@ findings. A four-line local rule caught it immediately. Treat rule coverage, not
 exit codes, as the thing to verify: the gate is only as good as the rules that ran, and
 this is exactly the class of bug rule 4 relies on it to catch.
 
+**A fourth trap, which is the same one from the other end.** trivy and pip-audit have
+nothing to scan here, and a scanner with no targets exits 0 exactly like a clean one.
+Measured 2026-09-19: `trivy fs` on this repo logs `Number of language-specific files
+num=0` and `Detected config files num=0`, and prints `-` in every summary column — whose
+own legend reads "Not scanned", as distinct from `0` meaning "Clean". Only the secret
+scanner actually ran. In JSON the tell is exact: with no eligible targets there is no
+`Results` key at all, so the gate reads that rather than the exit code.
+
+This is reported as NOT PROVEN, not as a failure. Having no Python or container targets
+is this repo's permanent shape, and failing every run would train the reader to ignore
+the gate. A green run therefore ends with the caveat attached:
+
+```
+gate: passed, but 2 scanner(s) proved nothing:
+  - trivy: vulnerability and misconfiguration scanners had no targets
+  - pip-audit: nothing to scan, no Python manifest
+```
+
+Both were exercised against a real target rather than assumed. A `requirements.txt`
+pinning `six==1.17.0` made trivy report `clean across 1 target(s)` and pip-audit report
+no known vulnerabilities, and the caveat lines disappeared. Repinned to `jinja2==2.11.2`,
+trivy failed the gate with 5 CVEs and pip-audit exited 1 with 10 advisories — trivy runs
+first, so pip-audit's failure path was confirmed by running it directly on the same file.
+
 Still absent from the gate: `bandit` and `gosec`, neither of which has a target in this
-repo, the SBOM diff, and `trivy` and `pip-audit`, which are verified but still run by hand
-rather than from `npm run gate`.
+repo, and the SBOM diff.
 
 **Hard rules**
 1. No model gets root, sudo, or credential store access.

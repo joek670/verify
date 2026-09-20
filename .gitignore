@@ -8,3 +8,8 @@ Thumbs.db
 
 # Labeled trial records written when VERIFY_LOG is set
 *.jsonl
+
+# Semgrep Guardian plugin session state: an anonymous user id, an oauth marker
+# and an expiry. Machine-local, useless to anyone cloning this. The authored
+# rules live in security/semgrep/ so the plugin does not own the same directory.
+.semgrep/

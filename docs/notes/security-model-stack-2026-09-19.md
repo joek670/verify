@@ -75,15 +75,15 @@ scope definition (what is in bounds, what is not)
 
 ### The gate, as actually installed (2026-09-19)
 
-All three run from Git Bash and PowerShell 5.1 on this machine. `semgrep` and `trivy`
-are Docker wrappers in `~/.local/bin` — `semgrep-core` has no native Windows build, so
-Docker or WSL are the only routes. `pip-audit` is native via `uv tool install`.
+The semgrep half of the gate is now a script: `npm run gate` runs `node --test`, then a
+rule coverage self-test, then the repo scan, and exits non-zero on any of the three. It
+calls `docker run` directly rather than a shell wrapper, so it behaves the same from
+PowerShell 5.1, cmd and Git Bash. `semgrep-core` has no native Windows build, so Docker
+or WSL are the only routes; `trivy` is still the Docker wrapper in `~/.local/bin` and
+`pip-audit` is native via `uv tool install`.
 
 ```bash
-npm test                                  # or: node --test
-
-semgrep scan --config=p/javascript --config=p/nodejs --config=p/secrets \
-  --exclude=node_modules --error
+npm run gate                              # node --test + coverage self-test + repo scan
 
 trivy fs --scanners vuln,secret,misconfig --skip-dirs node_modules \
   --exit-code 1 .
@@ -91,11 +91,35 @@ trivy fs --scanners vuln,secret,misconfig --skip-dirs node_modules \
 pip-audit -r requirements.txt             # already exits 1 on findings
 ```
 
-**Two traps.** `semgrep` and `trivy` both exit 0 even when they report findings, so a
-gate that only checks the exit status passes silently. Measured on a fixture with one
+The scan `npm run gate` runs, for reference:
+
+```bash
+semgrep scan --config=security/semgrep/rules.yml \
+  --config=p/javascript --config=p/nodejs --config=p/secrets \
+  --exclude=node_modules --exclude=security/semgrep/fixtures --error
+```
+
+**Three traps.** First, `semgrep` and `trivy` both exit 0 even when they report findings,
+so a gate that only checks the exit status passes silently. Measured on a fixture with one
 known finding: semgrep exits 0 without `--error` and 1 with it; trivy exits 0 without
 `--exit-code 1` and 1 with it. The flag is `--error` — there is no `--error-on-findings`.
-And `--config=auto` wants a `semgrep login`; name the registry packs explicitly instead.
+Second, `--config=auto` wants a `semgrep login`; name the registry packs explicitly instead.
+
+Third, and worse than either: **a rule that does not parse is not a failed scan.** Semgrep
+reports the parse error in the JSON `errors` array, drops that rule, and scans on with the
+rest. A broken rule and a rule that found nothing look identical. Measured here on
+2026-09-19: the rule `no-child-process` used the pattern `import ... from "child_process"`,
+which is not valid semgrep syntax, and it had never fired once. The working forms are
+`import "child_process"` for any import of the module and `import { name } from
+"child_process"` for a specific binding. `npm run gate` now fails on a non-empty `errors`
+array, and separately asserts that every rule id in `rules.yml` produces at least one
+finding in `fixtures/bad.js` and that none of them fire on `fixtures/good.js`.
+
+All three failure paths were exercised rather than assumed: a planted
+`exec("echo " + name)` in a scanned path (exit 1), a deliberately invalid pattern (caught
+as a rule error), and a valid pattern edited to match nothing (caught by the coverage
+assertion). The self-test also fails if semgrep scanned zero files, which is what an empty
+bind mount looks like.
 
 Confirm a scanner on a known-bad fixture before trusting a clean result. This repo has
 zero npm dependencies — one lockfile entry, the root package — so a clean dependency
@@ -111,7 +135,8 @@ exit codes, as the thing to verify: the gate is only as good as the rules that r
 this is exactly the class of bug rule 4 relies on it to catch.
 
 Still absent from the gate: `bandit` and `gosec`, neither of which has a target in this
-repo, and the SBOM diff.
+repo, the SBOM diff, and `trivy` and `pip-audit`, which are verified but still run by hand
+rather than from `npm run gate`.
 
 **Hard rules**
 1. No model gets root, sudo, or credential store access.

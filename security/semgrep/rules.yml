@@ -1,0 +1,75 @@
+# Local rules for this repo. Semgrep's free registry packs missed a deliberate
+# `exec("echo " + untrusted)` here (p/javascript, p/nodejs, p/security-audit and
+# p/command-injection, 0 findings), so the gate cannot rely on them alone.
+#
+# Each rule has a violating case in fixtures/bad.js and a safe counterpart in
+# fixtures/good.js. `npm run gate` asserts every rule below still fires on the
+# first and that none of them fire on the second, so a rule that stops working
+# fails loudly instead of passing the repo.
+#
+# That assertion is not decoration. An earlier version of this file carried a
+# fifth rule, `no-child-process`, whose pattern `import ... from "child_process"`
+# is not valid semgrep syntax. Semgrep reported it as a rule parse error and
+# scanned on without it. Nothing else noticed, because the rule had never been
+# run against a fixture. The working import syntax is `import "child_process"`
+# for any import of the module, or `import { name } from "child_process"` for a
+# specific binding; `import ... from` is not accepted.
+
+rules:
+  - id: shell-from-concatenation
+    message: >-
+      Shell command built by concatenation. Pass an argument array to execFile or
+      spawn instead, so the shell never parses untrusted text.
+    languages: [javascript, typescript]
+    severity: ERROR
+    patterns:
+      - pattern-either:
+          - pattern: exec("..." + $X, ...)
+          - pattern: exec(`...${$X}...`, ...)
+          - pattern: execSync("..." + $X, ...)
+          - pattern: execSync(`...${$X}...`, ...)
+
+  - id: shell-invoking-import
+    message: >-
+      exec and execSync hand their command to a shell, which is what makes string
+      concatenation exploitable. Import execFile or spawn and pass an argument
+      array. A namespace import is flagged for the same reason: it brings exec in
+      without naming it, so the concatenation rules above cannot see the call.
+    languages: [javascript, typescript]
+    severity: ERROR
+    patterns:
+      - pattern-either:
+          - pattern: import { exec } from "node:child_process"
+          - pattern: import { exec } from "child_process"
+          - pattern: import { execSync } from "node:child_process"
+          - pattern: import { execSync } from "child_process"
+          - pattern: import * as $M from "node:child_process"
+          - pattern: import * as $M from "child_process"
+          - pattern: const { ..., exec, ... } = require("node:child_process")
+          - pattern: const { ..., exec, ... } = require("child_process")
+          - pattern: const { ..., execSync, ... } = require("node:child_process")
+          - pattern: const { ..., execSync, ... } = require("child_process")
+
+  - id: dynamic-code-execution
+    message: >-
+      eval or new Function on a non-literal turns any reachable input into code.
+    languages: [javascript, typescript]
+    severity: ERROR
+    patterns:
+      - pattern-either:
+          - pattern: eval($X)
+          - pattern: new Function(..., $X)
+      - pattern-not: eval("...")
+      - pattern-not: new Function("...")
+
+  - id: writehead-without-headers
+    message: >-
+      response.writeHead called with a status only. Every response in this server
+      carries securityHeaders; a headerless write silently drops them.
+    languages: [javascript, typescript]
+    severity: WARNING
+    patterns:
+      - pattern: $RES.writeHead($CODE)
+      - metavariable-regex:
+          metavariable: $RES
+          regex: ^(response|res)$

@@ -21,8 +21,11 @@
 ## 2. Revised stack
 
 ### Tier 1 — Deep reasoning and architecture
+- **Claude Fable 5.1** (via Claude Code) — first choice. Tops the Agent Security League on security correctness (37.4, functional 87.2) and leads Opus 5 on Terminal-Bench 4.0 (55.8 v 51.8).
 - **Claude Opus 5** (via Claude Code) — complex codebase engineering, refactors, auth/authz design, long agent sessions.
 - **GPT-6 Astra** (via Codex) — highest-difficulty vulnerability analysis and threat modeling.
+
+**Claude Mythos 5.1** tops Terminal-Bench 4.0 outright at 60.9. It has no published Agent Security League row, so it is untested on the axis that matters here. Worth a harness run (§5) before promoting it.
 
 Use for: architecture review, threat models, supply-chain analysis, deciding whether a finding is actually exploitable.
 
@@ -36,8 +39,13 @@ Run at effort 60–80, not 100. Most of the accuracy, half the tokens.
 - **Qwen 3.8** — local fallback for cheap, offline, low-risk passes.
 
 ### Removed
-- Gemini 3.8 Flash Cyber — unobtainable.
-- Claude Fable 5.1 as a routine reviewer — cyber-adjacent queries can be routed to Opus 5 by safeguards, so treat Opus 5 as your realistic Anthropic ceiling for this workload.
+- Gemini 3.8 Flash Cyber — unobtainable. Fairwind is gated to governments and national cyber authorities, critical-infrastructure operators, and core technology platforms. No public API, no published price, closed weights.
+
+### Corrected on re-check (19 Sep 2026)
+An earlier draft dropped Fable 5.1, on the reasoning that safeguards route cyber-adjacent queries to Opus 5 and Opus 5 is therefore the realistic Anthropic ceiling. The benchmark evidence says the opposite: Fable 5.1 beats Opus 5 on both axes cited here. The routing constraint may still be real in practice — nothing found confirms or denies it — but it is a claim about access, not capability, and it does not justify removing the top-scoring option. Verify it against your own usage before demoting Fable 5.1.
+
+### A note on the ASL scores
+37.4 / 34.1 / 32.4 are the current leaderboard round. The benchmark's launch round reported a top security score of 17.3 (Codex + GPT-5.4) over 200 tasks from 108 projects across 77 CWE classes. Scores move between rounds — re-read the leaderboard rather than quoting this file.
 
 ---
 

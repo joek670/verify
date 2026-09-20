@@ -73,6 +73,46 @@ scope definition (what is in bounds, what is not)
    post-change verification + rollback path
 ```
 
+### The gate, as actually installed (2026-09-19)
+
+All three run from Git Bash and PowerShell 5.1 on this machine. `semgrep` and `trivy`
+are Docker wrappers in `~/.local/bin` — `semgrep-core` has no native Windows build, so
+Docker or WSL are the only routes. `pip-audit` is native via `uv tool install`.
+
+```bash
+npm test                                  # or: node --test
+
+semgrep scan --config=p/javascript --config=p/nodejs --config=p/secrets \
+  --exclude=node_modules --error
+
+trivy fs --scanners vuln,secret,misconfig --skip-dirs node_modules \
+  --exit-code 1 .
+
+pip-audit -r requirements.txt             # already exits 1 on findings
+```
+
+**Two traps.** `semgrep` and `trivy` both exit 0 even when they report findings, so a
+gate that only checks the exit status passes silently. Measured on a fixture with one
+known finding: semgrep exits 0 without `--error` and 1 with it; trivy exits 0 without
+`--exit-code 1` and 1 with it. The flag is `--error` — there is no `--error-on-findings`.
+And `--config=auto` wants a `semgrep login`; name the registry packs explicitly instead.
+
+Confirm a scanner on a known-bad fixture before trusting a clean result. This repo has
+zero npm dependencies — one lockfile entry, the root package — so a clean dependency
+scan here means there was nothing to scan. A fixture pinning lodash 4.17.15, minimist
+1.2.0 and jinja2 2.11.2 produced 9 npm and 10 pip findings, which is how the tools were
+verified rather than assumed.
+
+**Semgrep's free packs are thinner than they look.** A deliberate
+`exec('echo ' + untrustedInput)` in an ESM Node file went undetected by `p/javascript`,
+`p/nodejs`, `p/security-audit` and `p/command-injection` — 68 rules, then 24, zero
+findings. A four-line local rule caught it immediately. Treat rule coverage, not just
+exit codes, as the thing to verify: the gate is only as good as the rules that ran, and
+this is exactly the class of bug rule 4 relies on it to catch.
+
+Still absent from the gate: `bandit` and `gosec`, neither of which has a target in this
+repo, and the SBOM diff.
+
 **Hard rules**
 1. No model gets root, sudo, or credential store access.
 2. No model gets write access to the repo. It proposes diffs; you apply them.

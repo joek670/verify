@@ -105,8 +105,10 @@ Then use the stack above to accelerate the review and patch loop.
 Hold constant: repo, task set, permissions, timeout, test suite.
 Vary one axis at a time.
 
-- Harness axis: Claude Code vs Codex vs your own runner, all on Opus 5.
-- Model axis: Opus 5 vs V4.1 Flash vs GLM-5.3 vs Astra, all on one harness.
+- Harness axis: Claude Code vs Codex vs your own runner, all on Fable 5.1.
+- Model axis: Fable 5.1 vs Mythos 5.1 vs Opus 5 vs V4.1 Flash vs GLM-5.3 vs Astra, all on one harness.
+
+Mythos 5.1 is the one row with no published security number, so it is the run worth doing first. Two questions it answers: does its Terminal-Bench lead survive a security gate, and does the safeguard-routing constraint in §2 show up in practice on either Anthropic model.
 
 Measure: true positives, false positives, tokens spent, wall-clock, and how many patches survive the deterministic gate. False-positive rate is the number that decides whether the stack is usable day to day.
 

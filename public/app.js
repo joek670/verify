@@ -26,9 +26,18 @@ const trialLogStatus = document.querySelector("#trial-log-status");
 const copyTrialButton = document.querySelector("#copy-trial");
 
 const RECOGNITION_LANGUAGE = "en-US";
-// RMS level a sample must reach to count as speech rather than room noise. It is a
-// guess, like the window's upper bound was, so the peak and mean levels a run actually
-// produced are recorded next to it instead of only the verdict it reached.
+// RMS level a sample must reach to count as speech rather than room noise. It began as a
+// guess, like the window's upper bound, and the peak and mean levels a run actually
+// produced are recorded next to it instead of only the verdict it reached — which is what
+// let it be judged rather than moved. The first post-fix series (n=6 genuine, 2026-09-05)
+// peaked at 0.121 to 0.282 against it, so a real speaker clears it by a wide margin and it
+// stays at 0.08. The earlier 0.071 reading came from the build where the recogniser
+// returned one segment and stopped, not from a quiet speaker.
+//
+// That judgment rests on one sitting: six runs inside three minutes, one speaker, one
+// microphone at one distance in one room. Input gain and mic placement move this
+// measurement directly, so the margin above is a margin at that gain. A quieter setup has
+// not been tried.
 const SPEECH_LEVEL = 0.08;
 // `available()` is a lookup and should return immediately, but it has been observed
 // hanging instead of rejecting. `install()` may genuinely download a language pack, so

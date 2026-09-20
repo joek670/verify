@@ -14,12 +14,17 @@ export const LIVENESS_FLOOR_RISK = 35;
 // bounds describe the response itself and lets the lower bound catch a near instant
 // answer on either path.
 //
-// The upper bound was an estimate and is now an estimate that has been checked. The
-// first post-fix series (n=6 genuine, 2026-09-05) ran 8.49 to 22.26 seconds, inside the
-// window every time, so nothing here moves: 30 leaves 7.7 seconds above the slowest run
-// recorded. Tightening it toward 22.26 would fit the constant to six runs. Excluded
+// The upper bound was an estimate and is now an estimate that has been checked, once.
+// The first post-fix series (n=6 genuine, 2026-09-05) ran 8.49 to 22.26 seconds, inside
+// the window every time, so nothing here moves: 30 leaves 7.7 seconds above the slowest
+// run recorded. Tightening it toward 22.26 would fit the constant to six runs. Excluded
 // prompt time is measured exactly, but the recogniser's end-of-speech latency is not,
 // and it is still inside this measurement.
+//
+// Those six runs were recorded inside three minutes in one sitting, so they describe one
+// speaker answering at one pace on one day. Response time is the measurement least tied
+// to the room, but it is the one most tied to the speaker, and only one has been
+// recorded. The headroom above is what makes that tolerable rather than the sample size.
 export const CHALLENGE_WINDOW_SECONDS = { minimum: 2, maximum: 30 };
 
 // The time the user held the floor, which is what `CHALLENGE_WINDOW_SECONDS` bounds —
@@ -44,6 +49,14 @@ export function measureResponseSeconds({ elapsedMs, spokenPromptMs = 0, answerGa
 // half as active as the least active one on record before this fires. What the series
 // does not establish is the other side: no still-frame or photograph trial has ever been
 // run, so this floor is known to pass a person and is not known to fail a photograph.
+//
+// It also rests on a single sitting. All six runs were recorded inside three minutes on
+// one afternoon, which means one room, one light level, one background and one distance
+// from the camera. This metric moves with every one of those: it is mean grey-level
+// change per pixel, so a darker room or a speaker filling less of the frame lowers it
+// without anyone moving differently. 0.0043 is therefore the quietest run of that
+// afternoon, not a measured floor of the metric, and the 2.1x margin is doing the work
+// that a second sitting has not yet been asked to do.
 export const VISUAL_MOTION_FLOOR = 0.002;
 
 // Said of a signal whose measurement is missing rather than failing. Comparing an

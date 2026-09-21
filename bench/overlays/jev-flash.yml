@@ -1,0 +1,28 @@
+# Bench overlay: V4.1 Flash arm. Identical to jev-glm.yml except for the
+# settings path on the last row — the whole point of the pair is that nothing
+# else differs.
+#
+#   node bench/make-settings.mjs
+#   dsh --profile headless --patch bench/overlays/jev-flash.yml "<task>"
+#
+# See jev-glm.yml for why the Jev row is an insert and why the model swap is a
+# settings path rather than an agent-default-model override.
+#
+# Requires OPENROUTER_API_KEY in the environment dsh is launched from.
+- insert:
+    - id: mcp-jev
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: jev
+        transport: stdio
+        command: node
+        args:
+          - 'C:\Users\jkile\.claude\integrations\dsh_jev_mcp_server.mjs'
+        cwd: 'C:\Users\jkile\.claude'
+        env: !!js "({ OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY ?? '' })"
+        toolCallTimeoutMs: 180000
+        failOnStartupError: true
+
+- id: settings
+  config:
+    path: 'C:\Users\jkile\.dsh\bench-settings\flash.yaml'

@@ -202,12 +202,25 @@ for (const task of selected) {
 
   // 2. the model's turn.
   const started = Date.now();
+  // dsh is an npm shim, so on Windows the executable is dsh.cmd. Spawning "dsh"
+  // there fails instantly with ENOENT, which without the check below would be
+  // recorded as a task the model failed in 7ms.
   const agent = run(
-    "dsh",
+    process.platform === "win32" ? "dsh.cmd" : "dsh",
     ["--profile", profile, "--patch", overlay, task.prompt],
     { cwd: tree, timeout: timeoutMs, maxBuffer: 64 * 1024 * 1024 },
   );
   const wallMs = Date.now() - started;
+
+  // A run that never started is not a result. Recording it as a failure would
+  // charge the model for the harness, which is the same class of mistake as a
+  // seed that stops breaking its oracle.
+  if (agent.error && agent.error.code !== "ETIMEDOUT") {
+    die(`task "${task.id}": dsh did not run (${agent.error.code}: ${agent.error.message})`);
+  }
+  if (agent.status === null && !agent.error) {
+    die(`task "${task.id}": dsh exited without a status and without an error`);
+  }
 
   // 3. score.
   const after = oracle(tree, task);

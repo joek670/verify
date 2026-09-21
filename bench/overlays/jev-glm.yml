@@ -1,0 +1,43 @@
+# Bench overlay: GLM-5.3 Flash arm.
+#
+#   dsh --profile headless --patch bench/overlays/jev-glm.yml "<task>"
+#
+# Two things this file exists to do, both of which have already cost a run:
+#
+# 1. Mount Jev. The headless profile mounts no MCP server that carries
+#    jev_decide — Jev lives in an agent preset, and presets are a web-profile
+#    plane. A new row belongs under `insert:`; a bare `- id: mcp-jev` here would
+#    be an id-targeted override of a row no layer defined, which silently
+#    no-ops. That is how a mount goes missing without an error.
+#
+# 2. Swap the model. Overriding `agent-default-model` in an overlay does NOT
+#    change the model: the settings file is applied at runtime and wins. The
+#    `settings` row (@deepseek-ai/dsh-settings-file) resolves
+#    `path ?? join(resolveDshHome(dshHome), 'settings.yaml')`, so an explicit
+#    `path` is what beats the default. Generate the per-arm documents first:
+#
+#      node bench/make-settings.mjs
+#
+# Requires OPENROUTER_API_KEY in the environment dsh is launched from. The key is
+# read from there rather than written here, so this file holds no secret and can
+# live in a public repo.
+- insert:
+    - id: mcp-jev
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: jev
+        transport: stdio
+        command: node
+        args:
+          - 'C:\Users\jkile\.claude\integrations\dsh_jev_mcp_server.mjs'
+        cwd: 'C:\Users\jkile\.claude'
+        # dsh-mcp-client scrubs every ambient name matching
+        # /KEY|PASSWORD|SECRET|TOKEN/i before spawning a server, so the key has
+        # to be handed over explicitly or the server starts without one.
+        env: !!js "({ OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY ?? '' })"
+        toolCallTimeoutMs: 180000
+        failOnStartupError: true
+
+- id: settings
+  config:
+    path: 'C:\Users\jkile\.dsh\bench-settings\glm.yaml'

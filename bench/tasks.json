@@ -1,0 +1,100 @@
+[
+  {
+    "id": "motion-floor-comparison-flipped",
+    "summary": "The visual motion test compares the wrong way round, so a still frame passes and a moving one is penalised.",
+    "seed": [
+      {
+        "file": "public/analyzer.js",
+        "find": "  } else if (visualMotion >= VISUAL_MOTION_FLOOR) {",
+        "replace": "  } else if (visualMotion <= VISUAL_MOTION_FLOOR) {"
+      }
+    ],
+    "prompt": "In this repository, `npm test` is failing. Find the cause, fix it, and leave the tests green. Do not change any file under test/.",
+    "oracle": ["node", "--test"],
+    "guard": ["test/analyzer.test.js", "test/server.test.js", "test/summarize-trials.test.js"]
+  },
+  {
+    "id": "response-seconds-clamp-removed",
+    "summary": "measureResponseSeconds no longer clamps at zero, so a response can be measured as negative seconds.",
+    "seed": [
+      {
+        "file": "public/analyzer.js",
+        "find": "  return Math.max(0, elapsedMs - spokenPromptMs - answerGapMs) / 1000;",
+        "replace": "  return (elapsedMs - spokenPromptMs - answerGapMs) / 1000;"
+      }
+    ],
+    "prompt": "In this repository, `npm test` is failing. Find the cause, fix it, and leave the tests green. Do not change any file under test/.",
+    "oracle": ["node", "--test"],
+    "guard": ["test/analyzer.test.js", "test/server.test.js", "test/summarize-trials.test.js"]
+  },
+  {
+    "id": "even-length-median-wrong",
+    "summary": "The median of an even-length series takes one element instead of averaging the middle pair.",
+    "seed": [
+      {
+        "file": "summarize-trials.js",
+        "find": "    median: sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2,",
+        "replace": "    median: sorted[middle],"
+      }
+    ],
+    "prompt": "In this repository, `npm test` is failing. Find the cause, fix it, and leave the tests green. Do not change any file under test/.",
+    "oracle": ["node", "--test"],
+    "guard": ["test/analyzer.test.js", "test/server.test.js", "test/summarize-trials.test.js"]
+  },
+  {
+    "id": "trial-origin-check-weakened",
+    "summary": "The trial log's cross-origin guard stops requiring Origin to match the host, so any page the user has open can write records into a loopback log.",
+    "seed": [
+      {
+        "file": "server.js",
+        "find": "  if (origin !== `http://${host}` || !/^(127\\.0\\.0\\.1|localhost|\\[::1\\])(:\\d+)?$/.test(host ?? \"\")) {",
+        "replace": "  if (!/^(127\\.0\\.0\\.1|localhost|\\[::1\\])(:\\d+)?$/.test(host ?? \"\")) {"
+      }
+    ],
+    "prompt": "In this repository, `npm test` is failing. Find the cause, fix it, and leave the tests green. Do not change any file under test/.",
+    "oracle": ["node", "--test"],
+    "guard": ["test/analyzer.test.js", "test/server.test.js", "test/summarize-trials.test.js"]
+  },
+  {
+    "id": "liveness-floor-lowered",
+    "summary": "LIVENESS_FLOOR_RISK is lowered below the value docs/adr/0001 fixes it at, which lets a liveness check alone reach allow.",
+    "seed": [
+      {
+        "file": "public/analyzer.js",
+        "find": "export const LIVENESS_FLOOR_RISK = 35;",
+        "replace": "export const LIVENESS_FLOOR_RISK = 25;"
+      }
+    ],
+    "prompt": "In this repository, `npm test` is failing. Find the cause, fix it, and leave the tests green. Do not change any file under test/.",
+    "oracle": ["node", "--test"],
+    "guard": ["test/analyzer.test.js", "test/server.test.js", "test/summarize-trials.test.js"]
+  },
+  {
+    "id": "parselog-accepts-arrays",
+    "summary": "parseLog stops rejecting JSON arrays, so a line holding an array is counted as a trial record instead of being skipped.",
+    "seed": [
+      {
+        "file": "summarize-trials.js",
+        "find": "      if (record && typeof record === \"object\" && !Array.isArray(record)) records.push(record);",
+        "replace": "      if (record && typeof record === \"object\") records.push(record);"
+      }
+    ],
+    "prompt": "In this repository, `npm test` is failing. Find the cause, fix it, and leave the tests green. Do not change any file under test/.",
+    "oracle": ["node", "--test"],
+    "guard": ["test/analyzer.test.js", "test/server.test.js", "test/summarize-trials.test.js"]
+  },
+  {
+    "id": "penalty-budget-broken",
+    "summary": "The first challenge turn's penalty is cut, so the additive penalties no longer sum to 100 from the floor.",
+    "seed": [
+      {
+        "file": "public/analyzer.js",
+        "find": "      score += 21;\n      reasons.push(\"The first challenge phrase was not recognized\");",
+        "replace": "      score += 12;\n      reasons.push(\"The first challenge phrase was not recognized\");"
+      }
+    ],
+    "prompt": "In this repository, `npm test` is failing. Find the cause, fix it, and leave the tests green. Do not change any file under test/.",
+    "oracle": ["node", "--test"],
+    "guard": ["test/analyzer.test.js", "test/server.test.js", "test/summarize-trials.test.js"]
+  }
+]

@@ -8,7 +8,8 @@
     "start": "node server.js",
     "test": "node --test",
     "gate": "node gate.mjs",
-    "trials": "node summarize-trials.js"
+    "trials": "node summarize-trials.js",
+    "bench:seeds": "node bench/run.mjs --verify-seeds"
   },
   "engines": {
     "node": ">=20"

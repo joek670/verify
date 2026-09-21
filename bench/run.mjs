@@ -46,6 +46,28 @@ const profile = arg("profile", "headless");
 const timeoutMs = Number(arg("timeout", "1800000"));
 const only = arg("only");
 
+// dsh is reached as its own JS entry point under the running node, not through
+// the `dsh` shim. On Windows the shim is dsh.cmd, which Node refuses to spawn
+// without shell:true (ENOENT for "dsh", EINVAL for "dsh.cmd"), and shell:true
+// would concatenate the task prompt into a command line unescaped. Pinning the
+// entry point also stops a different dsh on PATH from answering.
+const dshBin = arg(
+  "dsh-bin",
+  join(
+    process.env.APPDATA ?? join(process.env.HOME ?? ".", ".npm"),
+    "npm",
+    "node_modules",
+    "@deepseek-ai",
+    "dsh",
+    "lib",
+    "bin.js",
+  ),
+);
+if (!verifySeedsOnly && !existsSync(dshBin)) {
+  console.error(`dsh entry point not found at ${dshBin} — pass --dsh-bin <path to lib/bin.js>`);
+  process.exit(2);
+}
+
 if (!verifySeedsOnly && (!model || !overlay)) {
   console.error("usage: node bench/run.mjs --model <id> --overlay <path>   (or --verify-seeds)");
   process.exit(2);
@@ -202,12 +224,9 @@ for (const task of selected) {
 
   // 2. the model's turn.
   const started = Date.now();
-  // dsh is an npm shim, so on Windows the executable is dsh.cmd. Spawning "dsh"
-  // there fails instantly with ENOENT, which without the check below would be
-  // recorded as a task the model failed in 7ms.
   const agent = run(
-    process.platform === "win32" ? "dsh.cmd" : "dsh",
-    ["--profile", profile, "--patch", overlay, task.prompt],
+    process.execPath,
+    [dshBin, "--profile", profile, "--patch", overlay, task.prompt],
     { cwd: tree, timeout: timeoutMs, maxBuffer: 64 * 1024 * 1024 },
   );
   const wallMs = Date.now() - started;

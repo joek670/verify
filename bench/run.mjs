@@ -46,6 +46,27 @@ const profile = arg("profile", "headless");
 const timeoutMs = Number(arg("timeout", "1800000"));
 const only = arg("only");
 
+// Claude Code arms. `--claude solo|stacked` swaps dsh for `claude -p` on the same
+// tasks. Both arms run Opus at the same effort; the only difference is what is
+// loaded around it:
+//   solo    — user settings are not read (so no user-scope plugins, hooks or
+//             skills), no MCP servers, slash commands and skills disabled.
+//   stacked — the live user configuration: plugins, hooks, skills, and every
+//             user-scope MCP server including jev.
+// CLAUDE.md is loaded in both, since it is memory rather than settings; that is
+// held constant, not measured.
+const claudeArm = arg("claude");
+const claudeModel = arg("claude-model", "claude-opus-5-5");
+const claudeEffort = arg("effort", "low");
+if (claudeArm && !["solo", "stacked"].includes(claudeArm)) {
+  console.error('--claude takes "solo" or "stacked"');
+  process.exit(2);
+}
+const CLAUDE_ARM_ARGS = {
+  solo: ["--setting-sources", "project,local", "--strict-mcp-config", "--disable-slash-commands"],
+  stacked: [],
+};
+
 // dsh is reached as its own JS entry point under the running node, not through
 // the `dsh` shim. On Windows the shim is dsh.cmd, which Node refuses to spawn
 // without shell:true (ENOENT for "dsh", EINVAL for "dsh.cmd"), and shell:true
@@ -63,12 +84,12 @@ const dshBin = arg(
     "bin.js",
   ),
 );
-if (!verifySeedsOnly && !existsSync(dshBin)) {
+if (!verifySeedsOnly && !claudeArm && !existsSync(dshBin)) {
   console.error(`dsh entry point not found at ${dshBin} — pass --dsh-bin <path to lib/bin.js>`);
   process.exit(2);
 }
 
-if (!verifySeedsOnly && (!model || !overlay)) {
+if (!verifySeedsOnly && !claudeArm && (!model || !overlay)) {
   console.error("usage: node bench/run.mjs --model <id> --overlay <path>   (or --verify-seeds)");
   process.exit(2);
 }
@@ -98,7 +119,8 @@ if (git(["status", "--porcelain", "--untracked-files=no"]).stdout.trim()) {
   die("tracked files have uncommitted edits; the base commit would not describe what the arms started from");
 }
 
-const runId = arg("run-id", `${model ?? "seeds"}-${new Date().toISOString().slice(0, 10)}`);
+const armName = claudeArm ? `opus-${claudeEffort}-${claudeArm}` : model;
+const runId = arg("run-id", `${armName ?? "seeds"}-${new Date().toISOString().slice(0, 10)}`);
 mkdirSync(RESULTS_DIR, { recursive: true });
 const resultsPath = join(RESULTS_DIR, `${runId}.jsonl`);
 
@@ -173,7 +195,7 @@ function oracle(tree, task) {
 }
 
 function worktree(id) {
-  const tree = join(WT_ROOT, `${model ?? "seed"}--${id}`);
+  const tree = join(WT_ROOT, `${armName ?? "seed"}--${id}`);
   if (existsSync(tree)) {
     run("git", ["worktree", "remove", "--force", tree], { cwd: REPO });
   }
@@ -185,6 +207,26 @@ function worktree(id) {
 function removeWorktree(tree) {
   // Keep the tree on a failure so the run is inspectable; only clean passes.
   run("git", ["worktree", "remove", "--force", tree], { cwd: REPO });
+}
+
+function claudeStreamUsage(stdout) {
+  let toolCalls = 0, jevCalls = 0, costUsd = null, isError = null, sawResult = false;
+  for (const line of stdout.split("\n")) {
+    let ev;
+    try { ev = JSON.parse(line); } catch { continue; }
+    if (ev.type === "assistant") {
+      for (const part of ev.message?.content ?? []) {
+        if (part.type !== "tool_use") continue;
+        toolCalls++;
+        if (part.name.startsWith("mcp__jev__")) jevCalls++;
+      }
+    } else if (ev.type === "result") {
+      sawResult = true;
+      costUsd = ev.total_cost_usd ?? null;
+      isError = ev.is_error ?? null;
+    }
+  }
+  return { toolCalls, jevCalls, costUsd, isError, sawResult };
 }
 
 const selected = only ? TASKS.filter((t) => t.id === only) : TASKS;
@@ -224,21 +266,45 @@ for (const task of selected) {
 
   // 2. the model's turn.
   const started = Date.now();
-  const agent = run(
-    process.execPath,
-    [dshBin, "--profile", profile, "--patch", overlay, task.prompt],
-    { cwd: tree, timeout: timeoutMs, maxBuffer: 64 * 1024 * 1024 },
-  );
+  // claude is spawned through its .cmd launcher on Windows for the same reason the
+  // oracle is: no shell, so the prompt is passed as one argument and never parsed.
+  const agent = claudeArm
+    ? run(
+        process.platform === "win32" ? "claude.cmd" : "claude",
+        [
+          "-p", task.prompt,
+          "--model", claudeModel,
+          "--effort", claudeEffort,
+          "--dangerously-skip-permissions",
+          "--output-format", "stream-json",
+          "--verbose",
+          ...CLAUDE_ARM_ARGS[claudeArm],
+        ],
+        { cwd: tree, timeout: timeoutMs, maxBuffer: 64 * 1024 * 1024 },
+      )
+    : run(
+        process.execPath,
+        [dshBin, "--profile", profile, "--patch", overlay, task.prompt],
+        { cwd: tree, timeout: timeoutMs, maxBuffer: 64 * 1024 * 1024 },
+      );
   const wallMs = Date.now() - started;
 
   // A run that never started is not a result. Recording it as a failure would
   // charge the model for the harness, which is the same class of mistake as a
   // seed that stops breaking its oracle.
   if (agent.error && agent.error.code !== "ETIMEDOUT") {
-    die(`task "${task.id}": dsh did not run (${agent.error.code}: ${agent.error.message})`);
+    die(`task "${task.id}": ${claudeArm ? "claude" : "dsh"} did not run (${agent.error.code}: ${agent.error.message})`);
   }
   if (agent.status === null && !agent.error) {
-    die(`task "${task.id}": dsh exited without a status and without an error`);
+    die(`task "${task.id}": ${claudeArm ? "claude" : "dsh"} exited without a status and without an error`);
+  }
+
+  // A loaded tool is not a called one: the stacked arm scoring like solo means
+  // nothing unless jev was actually used, so tool calls are counted from the
+  // stream rather than inferred from the configuration.
+  const usage = claudeArm ? claudeStreamUsage(agent.stdout ?? "") : null;
+  if (claudeArm && !usage.sawResult) {
+    die(`task "${task.id}": claude produced no result event (auth or startup failure?)\n${(agent.stderr ?? "").slice(-2000)}`);
   }
 
   // 3. score.
@@ -246,7 +312,8 @@ for (const task of selected) {
   const guards = guardsIntact(tree, task);
   const record = {
     run: runId,
-    model,
+    model: armName,
+    ...(usage && { toolCalls: usage.toolCalls, jevCalls: usage.jevCalls, costUsd: usage.costUsd, isError: usage.isError }),
     base,
     task: task.id,
     wallMs,

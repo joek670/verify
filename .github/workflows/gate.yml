@@ -1,0 +1,38 @@
+# The gate, run on every push to main and every pull request.
+#
+# `npm run gate` runs the unit tests itself before it scans, so there is no
+# separate test job: splitting them would run the 92 tests twice for one signal.
+# There is no install step either, because this repo declares no dependencies.
+#
+# The gate needs Docker for semgrep and trivy, which the ubuntu runner provides.
+# It also prefers the pip-audit binary and falls back to running it under uv, so
+# uv is installed here even though this repo has no Python manifest today — the
+# fallback is the path that works on a machine where the binary is blocked, and a
+# runner without uv would hide that.
+name: gate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      # Pinned to an exact version: setup-uv publishes no floating major tag,
+      # so `@v10` does not resolve.
+      - uses: astral-sh/setup-uv@v10.2.0
+
+      - name: Run the gate
+        run: npm run gate

@@ -29,6 +29,7 @@ import { existsSync, readFileSync } from "node:fs";
 const SEMGREP_IMAGE = process.env.SEMGREP_IMAGE ?? "semgrep/semgrep:latest";
 const TRIVY_IMAGE = process.env.TRIVY_IMAGE ?? "aquasec/trivy:latest";
 const PIP_AUDIT = process.platform === "win32" ? "pip-audit.exe" : "pip-audit";
+const UV = process.platform === "win32" ? "uv.exe" : "uv";
 const RULES = "security/semgrep/rules.yml";
 const FIXTURES = "security/semgrep/fixtures";
 const REPO = process.cwd();
@@ -71,6 +72,33 @@ function trivy(cmd, options) {
     { cmd, volumes: ["-v", "trivy-cache:/root/.cache/trivy"] },
     options,
   );
+}
+
+// pip-audit ships as a standalone binary, and on Windows an Application Control
+// policy can refuse to launch it. That refusal arrives as a spawn error, not as
+// a scan result, so a gate that only knew the binary would report "could not run
+// pip-audit" on a machine where pip-audit is installed and working. Run the same
+// tool as a module under uv when the binary will not start. Which path ran is
+// printed, because the two are not the same evidence: the binary audits with the
+// versions it was installed against, the module resolves them per run.
+function pipAudit(file) {
+  const direct = spawnSync(PIP_AUDIT, ["-r", file], { stdio: "inherit" });
+  if (!direct.error) return { ...direct, via: PIP_AUDIT };
+
+  const viaUv = spawnSync(
+    UV,
+    ["run", "--no-project", "--with", "pip-audit", "--", "python", "-m", "pip_audit", "-r", file],
+    { stdio: "inherit" },
+  );
+  if (viaUv.error) {
+    return {
+      error: new Error(
+        `${PIP_AUDIT} would not start (${direct.error.message}) and neither would ` +
+          `${UV} (${viaUv.error.message})`,
+      ),
+    };
+  }
+  return { ...viaUv, via: `${UV} run --with pip-audit` };
 }
 
 // The gate is only as good as the rules that ran, so read the rule ids from the
@@ -263,10 +291,10 @@ if (requirements.length === 0) {
 } else {
   for (const file of requirements) {
     // pip-audit already exits 1 on findings, unlike semgrep and trivy.
-    const audit = spawnSync(PIP_AUDIT, ["-r", file], { stdio: "inherit" });
-    if (audit.error) fail(`could not run ${PIP_AUDIT}: ${audit.error.message}`);
+    const audit = pipAudit(file);
+    if (audit.error) fail(`could not run pip-audit: ${audit.error.message}`);
     if (audit.status !== 0) fail(`pip-audit reported findings in ${file}`);
-    note(`${file}: clean`);
+    note(`${file}: clean (${audit.via})`);
   }
 }
 

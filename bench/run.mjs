@@ -291,6 +291,18 @@ for (const task of selected) {
       );
   const wallMs = Date.now() - started;
 
+  // The counts in the record say what happened, not why — whether a hook fired,
+  // why jev was or was not called. The raw stream is kept next to the results
+  // (ignored by git via *.jsonl and *.log) so a surprising count can be read back.
+  let streamPath = null;
+  if (claudeArm) {
+    const streamDir = join(RESULTS_DIR, runId);
+    mkdirSync(streamDir, { recursive: true });
+    streamPath = join(streamDir, `${task.id}.stream.jsonl`);
+    writeFileSync(streamPath, agent.stdout ?? "");
+    if (agent.stderr) writeFileSync(join(streamDir, `${task.id}.stderr.log`), agent.stderr);
+  }
+
   // A run that never started is not a result. Recording it as a failure would
   // charge the model for the harness, which is the same class of mistake as a
   // seed that stops breaking its oracle.
@@ -322,6 +334,7 @@ for (const task of selected) {
   const guards = guardsIntact(tree, task);
   const record = {
     run: runId,
+    ...(streamPath && { stream: streamPath }),
     model: armName,
     ...(usage && { toolCalls: usage.toolCalls, jevCalls: usage.jevCalls, costUsd: usage.costUsd, isError: usage.isError }),
     base,

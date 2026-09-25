@@ -266,11 +266,12 @@ for (const task of selected) {
 
   // 2. the model's turn.
   const started = Date.now();
-  // claude is spawned through its .cmd launcher on Windows for the same reason the
-  // oracle is: no shell, so the prompt is passed as one argument and never parsed.
+  // claude is a native executable (claude.exe on Windows), so it spawns without a
+  // shell and the prompt is passed as one argument, never parsed. A .cmd launcher
+  // would fail with EINVAL here, as dsh.cmd did.
   const agent = claudeArm
     ? run(
-        process.platform === "win32" ? "claude.cmd" : "claude",
+        "claude",
         [
           "-p", task.prompt,
           "--model", claudeModel,

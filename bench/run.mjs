@@ -304,7 +304,9 @@ for (const task of selected) {
   // nothing unless jev was actually used, so tool calls are counted from the
   // stream rather than inferred from the configuration.
   const usage = claudeArm ? claudeStreamUsage(agent.stdout ?? "") : null;
-  if (claudeArm && !usage.sawResult) {
+  // An error result with no tool calls is claude failing to start (auth, a bad
+  // flag), not the model failing the task; recording it would charge the model.
+  if (claudeArm && (!usage.sawResult || (usage.isError && usage.toolCalls === 0))) {
     die(`task "${task.id}": claude produced no result event (auth or startup failure?)\n${(agent.stderr ?? "").slice(-2000)}`);
   }
 

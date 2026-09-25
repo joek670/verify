@@ -210,7 +210,7 @@ function removeWorktree(tree) {
 }
 
 function claudeStreamUsage(stdout) {
-  let toolCalls = 0, jevCalls = 0, costUsd = null, isError = null, sawResult = false;
+  let toolCalls = 0, jevCalls = 0, costUsd = null, isError = null, sawResult = false, resultText = null;
   for (const line of stdout.split("\n")) {
     let ev;
     try { ev = JSON.parse(line); } catch { continue; }
@@ -224,9 +224,10 @@ function claudeStreamUsage(stdout) {
       sawResult = true;
       costUsd = ev.total_cost_usd ?? null;
       isError = ev.is_error ?? null;
+      resultText = typeof ev.result === "string" ? ev.result : null;
     }
   }
-  return { toolCalls, jevCalls, costUsd, isError, sawResult };
+  return { toolCalls, jevCalls, costUsd, isError, sawResult, resultText };
 }
 
 const selected = only ? TASKS.filter((t) => t.id === only) : TASKS;
@@ -307,7 +308,13 @@ for (const task of selected) {
   // An error result with no tool calls is claude failing to start (auth, a bad
   // flag), not the model failing the task; recording it would charge the model.
   if (claudeArm && (!usage.sawResult || (usage.isError && usage.toolCalls === 0))) {
-    die(`task "${task.id}": claude produced no result event (auth or startup failure?)\n${(agent.stderr ?? "").slice(-2000)}`);
+    // claude -p reports startup failures such as expired OAuth in the result
+    // event, not on stderr, so both are printed.
+    die(
+      `task "${task.id}": claude failed before any tool call` +
+        `\n  result: ${usage.sawResult ? usage.resultText : "(no result event)"}` +
+        `\n  stderr: ${(agent.stderr ?? "").slice(-2000) || "(empty)"}`,
+    );
   }
 
   // 3. score.

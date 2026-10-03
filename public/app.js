@@ -545,9 +545,8 @@ function renderDecision(element, decision) {
   element.className = `result result--${decision.action}`;
   element.replaceChildren();
   const heading = document.createElement("strong");
-  heading.textContent = decision.risk === null
-    ? decision.action.toUpperCase()
-    : `${decision.action.toUpperCase()} · ${decision.risk}/100`;
+  const action = decision.action.charAt(0).toUpperCase() + decision.action.slice(1);
+  heading.textContent = decision.risk === null ? action : `${action}, risk ${decision.risk}/100`;
   const list = document.createElement("ul");
   decision.reasons.forEach((reason) => {
     const item = document.createElement("li");

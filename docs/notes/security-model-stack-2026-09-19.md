@@ -9,7 +9,6 @@
 | Claim | Status | Correction |
 |---|---|---|
 | GPT-6 Astra reached Critical cyber threshold | Confirmed | Public model refuses PoC exploit writing. Enterprise access is off by default. |
-| V4.1 Flash: TB 2.1 90.6, DeepSWE 74.2, CyberGym 88.1, SEC-Bench Pro 62.8 | Confirmed | Vendor-run, max reasoning effort (~2.5x tokens). Opus 5 leads on Terminal-Bench 3.0 (43.3 v 30.0) and 4.0 (51.8 v 31.2). |
 | GLM-5.3 most cyber-capable open-weight (CAISI) | Confirmed | ~4 months behind U.S. frontier on CAISI aggregate. |
 | Gemini 3.8 Flash Cyber as Tier 3 | **Wrong** | Fairwind-gated: governments, critical infrastructure, core platforms. Not obtainable for a home lab. |
 | ASL: 37.4 / 34.1 / 32.4 | Confirmed | Near-floor scores. Read as "all agents write insecure code," not as a ranking. |
@@ -30,9 +29,7 @@
 Use for: architecture review, threat models, supply-chain analysis, deciding whether a finding is actually exploitable.
 
 ### Tier 2 — High-throughput worker
-- **DeepSeek V4.1 Flash** — repo-wide scanning, test writing, dependency upgrades, static-analysis triage, container and Linux config, repetitive refactors.
-
-Run at effort 60–80, not 100. Most of the accuracy, half the tokens.
+Unassigned since 2026-10-21. The work is repo-wide scanning, test writing, dependency upgrades, static-analysis triage, container and Linux config, repetitive refactors.
 
 ### Tier 3 — Independent reviewer (open weights, local)
 - **GLM-5.3** — second-pass security review. Different vendor, different training, so it fails differently. That is the whole point.
@@ -56,7 +53,7 @@ scope definition (what is in bounds, what is not)
         |
    snapshot / VM restore point
         |
-   V4.1 Flash  -> findings + proposed patches   [no write access]
+   Tier 2 worker -> findings + proposed patches [no write access]
         |
    deterministic gate: unit tests, semgrep,
    bandit/gosec, trivy, pip-audit/npm audit,
@@ -193,7 +190,7 @@ Hold constant: repo, task set, permissions, timeout, test suite.
 Vary one axis at a time.
 
 - Harness axis: Claude Code vs Codex vs your own runner, all on Fable 5.1.
-- Model axis: Fable 5.1 vs Mythos 5.1 vs Opus 5 vs V4.1 Flash vs GLM-5.3 vs Astra, all on one harness.
+- Model axis: Fable 5.1 vs Mythos 5.1 vs Opus 5 vs GLM-5.3 vs Astra, all on one harness.
 
 Mythos 5.1 is the one row with no published security number, so it is the run worth doing first. Two questions it answers: does its Terminal-Bench lead survive a security gate, and does the safeguard-routing constraint in §2 show up in practice on either Anthropic model.
 
@@ -204,7 +201,6 @@ Measure: true positives, false positives, tokens spent, wall-clock, and how many
 ## Sources
 - OpenAI, GPT-6 Astra safety overview and Preparedness Framework pages
 - NIST CAISI, assessment of Z.ai GLM-5.3 cyber capabilities (Sept 2026)
-- DeepSeek V4.1 Flash technical report; VentureBeat and BenchLM benchmark breakdowns
 - Google, "Introducing Gemini 3.8 Flash and 3.8 Flash Cyber" (Fairwind access terms)
 - Endor Labs, Agent Security League leaderboard (extends CMU SusVibes)
 - TechCrunch / The Register / Hackread coverage of the Hacktron AI disclosure

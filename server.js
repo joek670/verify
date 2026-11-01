@@ -137,6 +137,11 @@ export function createVerifyServer({ logPath = resolveTrialLog(process.env.VERIF
     const requested = pathname.replace(/^\/+/, "") || "index.html";
     const filePath = normalize(join(root, requested));
 
+    // Not what stops traversal today: `URL` has already removed every dot segment,
+    // including `%2e` forms and backslash separators, and the pathname is never
+    // percent-decoded, so no target reaches this branch. It stays as defence in depth
+    // for a change to requestPathname. Decoding there would turn `/..%2fpackage.json`
+    // into `../package.json`, and this check is then the only thing in the way.
     if (!filePath.startsWith(root)) {
       response.writeHead(403, TEXT).end("Forbidden");
       return;
